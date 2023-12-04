@@ -955,29 +955,6 @@ const releaseCache = () => {
 }
 
 /**
- * Convert a recording timestamp to EDF data record index.
- * @param time - Timestamp in seconds to convert.
- * @returns Data record index.
- */
-const timeToDataRecordIndex = (time: number): number => {
-    if (!RECORDING.header) {
-        log(postMessage, 'ERROR',
-            `Cannot convert time to data record index before study parameters have been set.`,
-        SCOPE)
-        return NUMERIC_ERROR_VALUE
-    }
-    if (time > RECORDING.totalLength) {
-        log(postMessage, 'ERROR',
-            `Cannot convert time to data record index, given itime ${time} is out of recording bounds ` +
-            `(0 - ${RECORDING.totalLength}).`,
-        SCOPE)
-        return NUMERIC_ERROR_VALUE
-    }
-    const priorGapsTotal = time > 0 ? getGapTimeBetween(0, time) : 0
-    return Math.floor((time - priorGapsTotal)/RECORDING.header.dataRecordDuration)
-}
-
-/**
  * Initialize signal cache.
  * @returns True on success, false on failure.
  */
@@ -1066,4 +1043,27 @@ const setupStudy = async (header: BiosignalHeaderRecord, edfHeader: EdfHeader, u
         })
     }
     return true
+}
+
+/**
+ * Convert a recording timestamp to EDF data record index.
+ * @param time - Timestamp in seconds to convert.
+ * @returns Data record index.
+ */
+const timeToDataRecordIndex = (time: number): number => {
+    if (!RECORDING.header) {
+        log(postMessage, 'ERROR',
+            `Cannot convert time to data record index before study parameters have been set.`,
+        SCOPE)
+        return NUMERIC_ERROR_VALUE
+    }
+    if (time > RECORDING.totalLength) {
+        log(postMessage, 'ERROR',
+            `Cannot convert time to data record index, given itime ${time} is out of recording bounds ` +
+            `(0 - ${RECORDING.totalLength}).`,
+        SCOPE)
+        return NUMERIC_ERROR_VALUE
+    }
+    const priorGapsTotal = time > 0 ? getGapTimeBetween(0, time) : 0
+    return Math.floor((time - priorGapsTotal)/RECORDING.header.dataRecordDuration)
 }
