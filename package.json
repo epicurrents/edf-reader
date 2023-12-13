@@ -12,9 +12,28 @@
     "test": "npm run test:unit",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --verbose --no-cache --runInBand"
   },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./types": "./dist/types/index.d.ts",
+    "./package.json": "./package.json",
+    "./dist/types": "./dist/types/index.d.ts"
+  },
+  "imports": {
+    "#root/*": "./dist/*",
+    "#*": "./dist/src/*"
+  },
+  "files": [
+    "dist/*",
+    "LICENSE",
+    "README.md"
+  ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/epicurrents/file-loaders.git"
+    "url": "https://github.com/epicurrents/edf-file-loader.git"
   },
   "author": "Sampsa Lohi",
   "license": "Apache-2.0",
