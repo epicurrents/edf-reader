@@ -5,7 +5,11 @@
  * @license    Apache-2.0
  */
 
-import { BiosignalAnnotation, FileFormatLoader, SafeObject, SignalCachePart } from "@epicurrents/core/dist/types"
+import {
+    BiosignalAnnotation,
+    SafeObject,
+    SignalCachePart,
+} from "@epicurrents/core/dist/types"
 
 export type EdfHeader = SafeObject & {
     dataFormat: string
@@ -90,5 +94,5 @@ export type EdfSignalInfo = SafeObject & {
  */
 export interface EdfSignalPart extends SignalCachePart {
     annotations?: BiosignalAnnotation[]
-    dataGaps?: Map<Number, number>
+    dataGaps?: Map<number, number>
 }

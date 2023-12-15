@@ -15,7 +15,7 @@ import {
     partsNotCached,
     isAnnotationSignal,
     NUMERIC_ERROR_VALUE,
-    sleep
+    sleep,
 } from '@epicurrents/core/dist/util'
 import {
     COMBINING_SIGNALS_FAILED,
@@ -28,9 +28,11 @@ import {
     type BiosignalAnnotation,
     type BiosignalChannel,
     type BiosignalHeaderRecord,
+    type ConfigChannelFilter,
     type LoadDirection,
     type SignalCachePart,
     type SignalCacheProcess,
+    type WorkerMessage,
 } from '@epicurrents/core/dist/types'
 import EdfDecoder from './EdfDecoder'
 import EdfFileReader from './EdfFileReader'
@@ -38,7 +40,7 @@ import { type EdfHeader, type EdfSignalPart } from '#types/edf'
 import IOMutex from 'asymmetric-io-mutex'
 import { log } from '@epicurrents/core/dist/util'
 
-const SCOPE = "EdfWorker"
+const SCOPE = "EdfWorkerSAB"
 
 const LOAD_DIRECTION_ALTERNATING: LoadDirection = 'alternate'
 const LOAD_DIRECTION_BACKWARD: LoadDirection = 'backward'
@@ -77,7 +79,7 @@ const cacheProcesses = [] as SignalCacheProcess[]
 let awaitData = null as null | {
     range: number[],
     resolve: () => void,
-    timeout: any,
+    timeout: unknown,
 }
 /** Has the mutex been set up. */
 let isMutexSetup = false
@@ -85,7 +87,7 @@ let isMutexSetup = false
 // Apply initial settings.
 const SETTINGS = {} as AppSettings
 
-onmessage = async (message: any) => {
+onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {
         return
     }
@@ -112,10 +114,13 @@ onmessage = async (message: any) => {
             })
             return
         }
+        // Extract job parameters.
+        const range = message.data.range as number[]
+        const config = message.data.config as ConfigChannelFilter
         try {
-            const sigs = await getSignals(message.data.range, message.data.config)
-            const annos = getAnnotations(message.data.range)
-            const gaps = getDataGaps(message.data.range)
+            const sigs = await getSignals(range, config)
+            const annos = getAnnotations(range)
+            const gaps = getDataGaps(range)
             if (sigs) {
                 postMessage({
                     action: action,
@@ -134,9 +139,35 @@ onmessage = async (message: any) => {
                 })
             }
         } catch (e) {
+            log(postMessage, 'ERROR', `Getting signals failed.`, SCOPE, e)
+            postMessage({
+                action: action,
+                success: false,
+                rn: message.data.rn,
+            })
         }
     } else if (action === 'setup-cache') {
-        if (await setupCache(message.data.buffer, message.data.range.start)) {
+        const buffer = message.data.buffer as SharedArrayBuffer
+        if (!buffer) {
+            log(postMessage, 'ERROR', `Commission is missing a shared array buffer.`, SCOPE)
+            postMessage({
+                action: action,
+                success: false,
+                rn: message.data.rn,
+            })
+            return
+        }
+        const range = message.data.range as { start: number, end: number }
+        if (!range) {
+            log(postMessage, 'ERROR', `Commission is missing a buffer range.`, SCOPE)
+            postMessage({
+                action: action,
+                success: false,
+                rn: message.data.rn,
+            })
+            return
+        }
+        if (await setupCache(buffer, range.start)) {
             // Pass the generated shared buffers back to main thread.
             postMessage({
                 action: action,
@@ -160,20 +191,47 @@ onmessage = async (message: any) => {
         })
     } else if (action === 'setup-study') {
         // Check EDF header.
-        if (!message.data.formatHeader?.reserved?.startsWith('EDF')) {
-            log(postMessage, 'ERROR', `Format-specific header is not an EDF-compatible format.`, 'EdfWorker')
+        const formatHeader = message.data.formatHeader as EdfHeader | undefined
+        if (!formatHeader) {
+            log(postMessage, 'ERROR', `Commission is missing a format-specific header.`, SCOPE)
             postMessage({
                 action: action,
                 success: false,
                 rn: message.data.rn,
             })
+            return
         }
-        if (await setupStudy(
-                message.data.header,
-                message.data.formatHeader,
-                message.data.url
-            )
-        ) {
+        const reserved = formatHeader.reserved as string | undefined
+        if (!reserved?.startsWith('EDF')) {
+            log(postMessage, 'ERROR', `Format-specific header is not an EDF-compatible format.`, SCOPE)
+            postMessage({
+                action: action,
+                success: false,
+                rn: message.data.rn,
+            })
+            return
+        }
+        const header = message.data.header as BiosignalHeaderRecord | undefined
+        if (!header) {
+            log(postMessage, 'ERROR', `Commission is missing a generic biosignal header.`, SCOPE)
+            postMessage({
+                action: action,
+                success: false,
+                rn: message.data.rn,
+            })
+            return
+        }
+        const url = message.data.url as string | undefined
+        if (!url) {
+            log(postMessage, 'ERROR', `Commission is missing a source URL.`, SCOPE)
+            postMessage({
+                action: action,
+                success: false,
+                rn: message.data.rn,
+            })
+            return
+        }
+        if (await setupStudy(header, formatHeader, url)) {
             postMessage({
                 action: action,
                 dataLength: RECORDING.dataLength,
@@ -275,8 +333,12 @@ const cacheSignalsFromUrl = async (startFrom: number = 0) => {
     // Get an array of parts that are in the process of being cached.
     const cacheTargets = cacheProcesses.map(proc => proc.target)
     // If we're at the start of the recording and can cache it entirely, just do that.
-    if (!startFrom && SETTINGS.app.maxLoadCacheSize >= totalSignalDataSize) {
+    if (SETTINGS.app.maxLoadCacheSize >= totalSignalDataSize) {
         log(postMessage, 'DEBUG', `Loading the whole recording to cache.`, SCOPE)
+        if (startFrom) {
+            // Not starting from the beginning, load initial part at location.
+            await loadAndCachePart(startFrom)
+        }
         const requestedPart = {
             start: 0,
             end: RECORDING.dataLength,
@@ -314,9 +376,6 @@ const cacheSignalsFromUrl = async (startFrom: number = 0) => {
                 proc.end = nextPart
             }
         }
-    } else if (SETTINGS.app.maxLoadCacheSize >= totalSignalDataSize) {
-        // Can load the entire file but we're not starting from the beginning.
-
     } else {
         // Cannot load entire file.
         // The idea is to consider the cached signal data in three parts.
@@ -335,7 +394,7 @@ const cacheSignalsFromUrl = async (startFrom: number = 0) => {
         const firstThird = range.start + Math.round(cacheThird)
         const secondThird = range.start + Math.round(cacheThird*2)
         const lastThird = range.start + RECORDING.maxDataBlocks
-        // Seek the data block the starting point is in
+        // Seek the data block the starting point is in.
         let nowInPart = 0
         if (startFrom) {
             for (let i=0; i<RECORDING.dataBlocks.length; i++) {
@@ -347,7 +406,7 @@ const cacheSignalsFromUrl = async (startFrom: number = 0) => {
         if (
             // Case when the cache does not start from the beginning of the recording, but view is in the middle third.
             startFrom >= firstThird && startFrom < secondThird ||
-            // Case when it does (and view is in the first or middle third, this check must be in the first clause!)
+            // Case when it does (and view is in the first or middle third, this check must be in the first clause!).
             range.start === 0 && startFrom < secondThird
         ) {
             // We don't have to do any changes.
@@ -355,7 +414,7 @@ const cacheSignalsFromUrl = async (startFrom: number = 0) => {
         } else if (startFrom < firstThird) {
             // Cache does not start from the beginning and the view is in the first third
             // -> ditch last block and load a preceding one.
-
+            null
         } else if (
             startFrom >= secondThird && startFrom < lastThird ||
             range.start === 0 && startFrom < lastThird
@@ -375,18 +434,18 @@ const cacheSignalsFromUrl = async (startFrom: number = 0) => {
                 ) {
                     return true
                 } else if (startFrom < procFirstThird) {
-
+                    null
                 } else if (
                     startFrom >= procSecondThird && startFrom < procLastThird ||
                     proc.target.start === 0 && startFrom < procLastThird
                 ) {
-
+                    null
                 }
             }
         }
         // First, load the next part (where the user will most likely browse).
         // TODO: Finish this method.
-
+        nowInPart // Used here to determine the next part, suppress linting error.
     }
     return true
 }
@@ -453,7 +512,9 @@ const dataRecordIndexToTime = (index: number) => {
  * @returns List of annotations as BiosignalAnnotation[].
  */
 const getAnnotations = (range?: number[]): BiosignalAnnotation[] =>{
-    let [start, end] = range || [0, RECORDING.totalLength]
+    const [start, end] = range && range.length === 2
+                         ? [range[0], Math.min(range[1], RECORDING.totalLength)]
+                         : [0, RECORDING.totalLength]
     if (!RECORDING.header) {
         log(postMessage, 'ERROR', "Cannot load annotations, recording header has not been loaded yet.", SCOPE)
         return []
@@ -470,12 +531,9 @@ const getAnnotations = (range?: number[]): BiosignalAnnotation[] =>{
         log(postMessage, 'ERROR', `Requested annotation range ${start} - ${end} was empty or invalid.`, SCOPE)
         return []
     }
-    if (end > RECORDING.totalLength) {
-        end = RECORDING.totalLength
-    }
     const annotations = [] as BiosignalAnnotation[]
-    for (const [rec, annos] of RECORDING.annotations.entries()) {
-        for (const anno of annos) {
+    for (const annos of RECORDING.annotations.entries()) {
+        for (const anno of annos[1]) {
             if (anno.start >= start && anno.start < end) {
                 annotations.push(anno)
             }
@@ -491,7 +549,9 @@ const getAnnotations = (range?: number[]): BiosignalAnnotation[] =>{
  * Both the starting and ending data records are excluded, because there cannot be a data gap inside just one record.
  */
 const getDataGaps = (range?: number[]): { duration: number, start: number }[] => {
-    let [start, end] = range || [0, RECORDING.totalLength]
+    const [start, end] = range && range.length === 2
+                         ? [range[0], Math.min(range[1], RECORDING.totalLength)]
+                         : [0, RECORDING.totalLength]
     const dataGaps = [] as { duration: number, start: number }[]
     if (!RECORDING.header) {
         log(postMessage, 'ERROR', "Cannot load data gaps, recording header has not been loaded yet.", SCOPE)
@@ -507,9 +567,6 @@ const getDataGaps = (range?: number[]): { duration: number, start: number }[] =>
     }
     if (start >= end - RECORDING.header.dataRecordDuration) {
         return dataGaps
-    }
-    if (end > RECORDING.totalLength) {
-        end = RECORDING.totalLength
     }
     let priorGapsTotal = 0
     for (const gap of RECORDING.dataGaps) {
@@ -691,7 +748,7 @@ const getSignalPart = async (start: number, end: number, unknown = true)
  * @param range - Range in seconds as [start, end].
  * @param config - Optional configuration.
  */
-const getSignals = async (range: number[], config?: any) => {
+const getSignals = async (range: number[], config?: ConfigChannelFilter) => {
     if (!RECORDING.header || !CACHE) {
         log(postMessage, 'ERROR', "Cannot load signals, signal cache has not been set up yet.", SCOPE)
         return null
@@ -749,7 +806,7 @@ const getSignals = async (range: number[], config?: any) => {
         })
         await dataUpdatePromise
         if (awaitData?.timeout) {
-            clearTimeout(awaitData.timeout)
+            clearTimeout(awaitData.timeout as number)
         } else {
             log(postMessage, 'DEBUG', `Timeout reached when waiting for missing signals.`, SCOPE)
         }
@@ -893,9 +950,9 @@ const loadAndCachePart = async (start: number, process?: SignalCacheProcess) => 
         Math.floor(SETTINGS.app.dataChunkSize/RECORDING.dataRecordSize),
         1 // Always load at least one record at a time.
     )
-    let startRecord = start // timeToDataRecordIndex(start)
-    let finalRecord = process ? process.target.end
-                              : RECORDING.header.dataRecordCount
+    const startRecord = start // timeToDataRecordIndex(start)
+    const finalRecord = process ? process.target.end
+                                : RECORDING.header.dataRecordCount
     let nextRecord = Math.min(
         startRecord + dataChunkRecords,
         finalRecord

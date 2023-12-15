@@ -9,7 +9,6 @@
  * @license    Apache-2.0
  */
 
-import { BiosignalMutex } from '@epicurrents/core'
 import {
     combineSignalParts,
     partsNotCached,
@@ -28,9 +27,10 @@ import {
     type BiosignalAnnotation,
     type BiosignalChannel,
     type BiosignalHeaderRecord,
-    type LoadDirection,
+    type ConfigChannelFilter,
     type SignalCachePart,
     type SignalCacheProcess,
+    type WorkerMessage,
 } from '@epicurrents/core/dist/types'
 import EdfDecoder from './EdfDecoder'
 import EdfFileReader from './EdfFileReader'
@@ -75,7 +75,7 @@ const cacheProcesses = [] as SignalCacheProcess[]
 let awaitData = null as null | {
     range: number[],
     resolve: () => void,
-    timeout: any,
+    timeout: unknown,
 }
 /** Has the cache been set up. */
 let isCacheSetup = false
@@ -86,7 +86,7 @@ const AWAIT_SIGNALS_TIME = 5000
 // Apply initial settings.
 const SETTINGS = {} as AppSettings
 
-onmessage = async (message: any) => {
+onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {
         return
     }
@@ -113,10 +113,13 @@ onmessage = async (message: any) => {
             })
             return
         }
+        // Extract job parameters.
+        const range = message.data.range as number[]
+        const config = message.data.config as ConfigChannelFilter
         try {
-            const sigs = await getSignals(message.data.range, message.data.config)
-            const annos = getAnnotations(message.data.range)
-            const gaps = getDataGaps(message.data.range)
+            const sigs = await getSignals(range, config)
+            const annos = getAnnotations(range)
+            const gaps = getDataGaps(range)
             if (sigs) {
                 postMessage({
                     action: action,
@@ -135,6 +138,12 @@ onmessage = async (message: any) => {
                 })
             }
         } catch (e) {
+            log(postMessage, 'ERROR', `Getting signals failed.`, 'EdfWorker', e)
+            postMessage({
+                action: action,
+                success: false,
+                rn: message.data.rn,
+            })
         }
     } else if (action === 'setup-cache') {
         if (await setupCache()) {
@@ -160,20 +169,47 @@ onmessage = async (message: any) => {
         })
     } else if (action === 'setup-study') {
         // Check EDF header.
-        if (!message.data.formatHeader?.reserved?.startsWith('EDF')) {
+        const formatHeader = message.data.formatHeader as EdfHeader | undefined
+        if (!formatHeader) {
+            log(postMessage, 'ERROR', `Commission is missing a format-specific header.`, 'EdfWorker')
+            postMessage({
+                action: action,
+                success: false,
+                rn: message.data.rn,
+            })
+            return
+        }
+        const reserved = formatHeader.reserved as string | undefined
+        if (!reserved?.startsWith('EDF')) {
             log(postMessage, 'ERROR', `Format-specific header is not an EDF-compatible format.`, 'EdfWorker')
             postMessage({
                 action: action,
                 success: false,
                 rn: message.data.rn,
             })
+            return
         }
-        if (await setupStudy(
-                message.data.header,
-                message.data.formatHeader,
-                message.data.url
-            )
-        ) {
+        const header = message.data.header as BiosignalHeaderRecord | undefined
+        if (!header) {
+            log(postMessage, 'ERROR', `Commission is missing a generic biosignal header.`, 'EdfWorker')
+            postMessage({
+                action: action,
+                success: false,
+                rn: message.data.rn,
+            })
+            return
+        }
+        const url = message.data.url as string | undefined
+        if (!url) {
+            log(postMessage, 'ERROR', `Commission is missing a source URL.`, 'EdfWorker')
+            postMessage({
+                action: action,
+                success: false,
+                rn: message.data.rn,
+            })
+            return
+        }
+        if (await setupStudy(header, formatHeader, url)) {
             postMessage({
                 action: action,
                 dataLength: RECORDING.dataLength,
@@ -248,10 +284,9 @@ const cacheNewDataGaps = (newGaps: Map<number, number>) => {
 
 /**
  * Cache raw signals from the file at the given URL.
- * @param url - Optional URL to the file.
  * @returns Success (true/false).
  */
-const cacheSignalsFromUrl = async (startFrom: number = 0) => {
+const cacheSignalsFromUrl = async () => {
     if (!RECORDING.header) {
         log(postMessage, 'ERROR', [`Could not cache signals.`, STUDY_PARAMETERS_NOT_SET], SCOPE)
         postMessage({
@@ -385,7 +420,9 @@ const dataRecordIndexToTime = (index: number) => {
  * @returns List of annotations as BiosignalAnnotation[].
  */
 const getAnnotations = (range?: number[]): BiosignalAnnotation[] =>{
-    let [start, end] = range || [0, RECORDING.totalLength]
+    const [start, end] = range && range.length === 2
+                         ? [range[0], Math.min(range[1], RECORDING.totalLength)]
+                         : [0, RECORDING.totalLength]
     if (!RECORDING.header) {
         log(postMessage, 'ERROR', "Cannot load annotations, recording header has not been loaded yet.", SCOPE)
         return []
@@ -402,12 +439,9 @@ const getAnnotations = (range?: number[]): BiosignalAnnotation[] =>{
         log(postMessage, 'ERROR', `Requested annotation range ${start} - ${end} was empty or invalid.`, SCOPE)
         return []
     }
-    if (end > RECORDING.totalLength) {
-        end = RECORDING.totalLength
-    }
     const annotations = [] as BiosignalAnnotation[]
-    for (const [rec, annos] of RECORDING.annotations.entries()) {
-        for (const anno of annos) {
+    for (const annos of RECORDING.annotations.entries()) {
+        for (const anno of annos[1]) {
             if (anno.start >= start && anno.start < end) {
                 annotations.push(anno)
             }
@@ -423,7 +457,9 @@ const getAnnotations = (range?: number[]): BiosignalAnnotation[] =>{
  * Both the starting and ending data records are excluded, because there cannot be a data gap inside just one record.
  */
 const getDataGaps = (range?: number[]): { duration: number, start: number }[] => {
-    let [start, end] = range || [0, RECORDING.totalLength]
+    const [start, end] = range && range.length === 2
+                         ? [range[0], Math.min(range[1], RECORDING.totalLength)]
+                         : [0, RECORDING.totalLength]
     const dataGaps = [] as { duration: number, start: number }[]
     if (!RECORDING.header) {
         log(postMessage, 'ERROR', "Cannot load data gaps, recording header has not been loaded yet.", SCOPE)
@@ -439,9 +475,6 @@ const getDataGaps = (range?: number[]): { duration: number, start: number }[] =>
     }
     if (start >= end - RECORDING.header.dataRecordDuration) {
         return dataGaps
-    }
-    if (end > RECORDING.totalLength) {
-        end = RECORDING.totalLength
     }
     let priorGapsTotal = 0
     for (const gap of RECORDING.dataGaps) {
@@ -621,7 +654,7 @@ const getSignalPart = async (start: number, end: number, unknown = true)
  * @param range - Range in seconds as [start, end].
  * @param config - Optional configuration.
  */
-const getSignals = async (range: number[], config?: any) => {
+const getSignals = async (range: number[], config?: ConfigChannelFilter) => {
     if (!RECORDING.header || !CACHE) {
         log(postMessage, 'ERROR', "Cannot load signals, signal buffers have not been set up yet.", SCOPE)
         return null
@@ -679,7 +712,7 @@ const getSignals = async (range: number[], config?: any) => {
         })
         await dataUpdatePromise
         if (awaitData?.timeout) {
-            clearTimeout(awaitData.timeout)
+            clearTimeout(awaitData.timeout as number)
         } else {
             log(postMessage, 'DEBUG', `Timeout reached when waiting for missing signals.`, SCOPE)
         }
@@ -827,9 +860,9 @@ const loadAndCachePart = async (start: number, process?: SignalCacheProcess) => 
         Math.floor(SETTINGS.app.dataChunkSize/RECORDING.dataRecordSize),
         1 // Always load at least one record at a time.
     )
-    let startRecord = start // timeToDataRecordIndex(start)
-    let finalRecord = process ? process.target.end
-                              : RECORDING.header.dataRecordCount
+    const startRecord = start // timeToDataRecordIndex(start)
+    const finalRecord = process ? process.target.end
+                                : RECORDING.header.dataRecordCount
     let nextRecord = Math.min(
         startRecord + dataChunkRecords,
         finalRecord

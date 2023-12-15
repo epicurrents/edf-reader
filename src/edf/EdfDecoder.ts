@@ -221,9 +221,9 @@ export default class EdfDecoder implements FileDecoder {
         }
         // In case of possible BDF support in the future.
         const SampleType = this._fileType === 'edf' ? Int16Array : Int16Array
-        // the raw signal is the digital signal.
-        var rawSignals = new Array(useHeaders.signalCount) as Int16Array[][]
-        var physicalSignals = new Array(useHeaders.signalCount) as Float32Array[][]
+        // The raw signal is the digital signal.
+        const rawSignals = new Array(useHeaders.signalCount) as Int16Array[][]
+        const physicalSignals = new Array(useHeaders.signalCount) as Float32Array[][]
         const nDataRecords = Math.round(range ? range : useHeaders.dataRecordCount)
         const annotations = new Array(nDataRecords) as BiosignalAnnotation[]
         const annotationSignals = [] as number[]
@@ -249,7 +249,11 @@ export default class EdfDecoder implements FileDecoder {
         }
         // UTF-8 decoder for the annotation text parts.
         const annotationDecoder = new TextDecoder('utf8')
-        const getAnnotationFields = (startFrom: number, recordLen: number, existing?: AnnotationFields): AnnotationFields => {
+        const getAnnotationFields = (
+            startFrom: number,
+            recordLen: number,
+            existing?: AnnotationFields
+        ): AnnotationFields => {
             const annotations = existing || {
                 recordStart: NUMERIC_ERROR_VALUE,
                 fields: []
@@ -273,18 +277,30 @@ export default class EdfDecoder implements FileDecoder {
                 if (byteArray[baIdx] === 20) {
                     // Field end byte.
                     if (fieldProps.startTime === NUMERIC_ERROR_VALUE) {
-                        fieldProps.startTime = parseFloat(
-                            codecutils.CodecUtils.getString8FromBuffer(buffer, i - fieldStart, fieldStart)
-                        )
+                        const startTime = codecutils.CodecUtils.getString8FromBuffer(
+                                            dataBuffer,
+                                            i - fieldStart,
+                                            fieldStart
+                                          )
+                        if (!startTime) {
+                            throw new Error()
+                        }
+                        fieldProps.startTime = parseFloat(startTime)
                         if (annotations.recordStart === NUMERIC_ERROR_VALUE && byteArray[baIdx+1] === 20) {
                             annotations.recordStart = fieldProps.startTime
                             // Skip the additional x20 byte.
                             i++
                         }
                     } else if (durationNext) {
-                        fieldProps.duration = parseFloat(
-                            codecutils.CodecUtils.getString8FromBuffer(buffer, i - fieldStart, fieldStart)
-                        )
+                        const duration = codecutils.CodecUtils.getString8FromBuffer(
+                                            dataBuffer,
+                                            i - fieldStart,
+                                            fieldStart
+                                         )
+                        if (!duration) {
+                            throw new Error()
+                        }
+                        fieldProps.duration = parseFloat(duration)
                         durationNext = false
                     } else {
                         // Decode annotation text part in UTF-8.
@@ -296,9 +312,15 @@ export default class EdfDecoder implements FileDecoder {
                 } else if (byteArray[baIdx] === 21) {
                     // Duration delimiter byte.
                     // This delimiter mus follow a start time field.
-                    fieldProps.startTime = parseFloat(
-                        codecutils.CodecUtils.getString8FromBuffer(buffer, i - fieldStart, fieldStart)
-                    )
+                    const startTime = codecutils.CodecUtils.getString8FromBuffer(
+                                        dataBuffer,
+                                        i - fieldStart,
+                                        fieldStart
+                                      )
+                    if (!startTime) {
+                        throw new Error()
+                    }
+                    fieldProps.startTime = parseFloat(startTime)
                     durationNext = true
                     fieldStart = i+1
                 } else if (byteArray[baIdx] === 0) {
@@ -373,7 +395,7 @@ export default class EdfDecoder implements FileDecoder {
                     dataOffset,
                     SampleType,
                     nSamples
-                )
+                ) as Int16Array
                 rawSignals[i][r] = rawSignal
                 // Convert digital signal to physical signal.
                 const physicalSignal = new Float32Array(rawSignal.length).fill(0)
@@ -463,64 +485,96 @@ export default class EdfDecoder implements FileDecoder {
         Log.debug(`EDF header decoding started.`, SCOPE)
         try {
             // 8 ASCII : version of this data format (0).
-            header.dataFormat = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset).trim()
+            const dataFormat = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset)
+            if (dataFormat === null) {
+                throw new Error()
+            }
+            header.dataFormat = dataFormat.trim()
             Log.debug(`Data format is ${header.dataFormat}.`, SCOPE)
-        } catch (e: any) {
-            Log.error(`Failed to parse data format EDF header field!`, SCOPE, e)
+        } catch (e: unknown) {
+            Log.error(`Failed to parse data format EDF header field!`, SCOPE, e as Error)
             return
         }
         offset += 8
         try {
             // 80 ASCII : local patient identification.
-            header.patientId = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 80, offset).trim()
+            const patientId = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 80, offset)
+            if (patientId === null) {
+                throw new Error()
+            }
+            header.patientId = patientId.trim()
             Log.debug(`Patient ID is ${header.patientId}.`, SCOPE)
-        } catch (e: any) {
-            Log.error(`Failed to parse patient ID EDF header field!`, SCOPE, e)
+        } catch (e: unknown) {
+            Log.error(`Failed to parse patient ID EDF header field!`, SCOPE, e as Error)
         }
         offset += 80
         try {
             // 80 ASCII : local recording identification.
-            header.localRecordingId = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 80, offset).trim()
+            const localRecordingId = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 80, offset)
+            if (localRecordingId === null) {
+                throw new Error()
+            }
+            header.localRecordingId = localRecordingId.trim()
             Log.debug(`Local recording ID is ${header.localRecordingId}.`, SCOPE)
-        } catch (e: any) {
-            Log.error(`Failed to parse local recording ID EDF header field!`, SCOPE, e)
+        } catch (e: unknown) {
+            Log.error(`Failed to parse local recording ID EDF header field!`, SCOPE, e as Error)
         }
         offset += 80
         try {
             // 8 ASCII : startdate of recording (dd.mm.yy).
-            const recordingStartDate = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset).trim()
+            const recStartDate = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset)?.trim()
+            if (!recStartDate) {
+                throw Error("Failed to load recording start date from header.")
+            }
             offset += 8
             // 8 ASCII : starttime of recording (hh.mm.ss).
-            const recordingStartTime = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset).trim()
+            const recStartTime = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset)?.trim()
+            if (!recStartTime) {
+                throw Error("Failed to load recording start time from header.")
+            }
             offset += 8
-            const date = recordingStartDate.split(".")
+            const date = recStartDate.split(".")
             // 1985 breakpoint.
             if (parseInt(date[2]) >= 85) {
                 date[2] = `19${date[2]}`
             } else {
                 date[2] = `20${date[2]}`
             }
-            const time = recordingStartTime.split(".")
-            header.recordingDate = new Date(date[2], parseInt(date[1]) - 1, date[0], time[0], time[1], time[2], 0)
+            const time = recStartTime.split(".")
+            header.recordingDate = new Date(
+                parseInt(date[2]),
+                parseInt(date[1]) - 1,
+                parseInt(date[0]),
+                parseInt(time[0]),
+                parseInt(time[1]),
+                parseInt(time[2]),
+                0
+            )
             Log.debug(`Starting datetime is ${header.recordingDate.toDateString()}.`, SCOPE)
-        } catch (e: any) {
-            Log.error(`Failed to parse starting date/time EDF header field!`, SCOPE, e)
+        } catch (e: unknown) {
+            Log.error(`Failed to parse starting date/time EDF header field!`, SCOPE, e as Error)
             offset += 16
         }
         try {
             // 8 ASCII : number of bytes in header record.
-            header.headerRecordBytes = parseInt(
-                codecutils.CodecUtils.getString8FromBuffer( this._inputBuffer , 8, offset).trim()
-            )
+            const hdrRecBytes = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset)?.trim()
+            if (!hdrRecBytes) {
+                throw new Error()
+            }
+            header.headerRecordBytes = parseInt(hdrRecBytes)
             Log.debug(`Header record size is ${header.headerRecordBytes} bytes.`, SCOPE)
-        } catch (e: any) {
+        } catch (e: unknown) {
             // Number of bytes can be calculated manually as well.
-            Log.error(`Failed to parse number of bytes EDF header field!`, SCOPE, e)
+            Log.error(`Failed to parse EDF header record size field!`, SCOPE, e as Error)
         }
         offset += 8
         try {
             // 44 ASCII : reserved.
-            header.reserved = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 44, offset)
+            const reserved = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 44, offset)
+            if (reserved === null) {
+                throw new Error()
+            }
+            header.reserved = reserved
             if (header.reserved.toUpperCase().startsWith('EDF+')) {
                 header.edfPlus = true
                 if (header.reserved.toUpperCase().substring(4, 5) === 'D') {
@@ -530,41 +584,51 @@ export default class EdfDecoder implements FileDecoder {
                     Log.debug(`File is using EDF+ specification, continuous record.`, SCOPE)
                 }
             }
-        } catch (e: any) {
-            Log.error(`Failed to parse reserved EDF header field!`, SCOPE, e)
+        } catch (e: unknown) {
+            Log.error(`Failed to parse reserved EDF header field!`, SCOPE, e as Error)
         }
         offset += 44
         try {
             // 8 ASCII : number of data records.
             // Note: Number of records can be -1 during recording, but currently only offline analysis is supported.
-            header.dataRecordCount = parseInt(
-                codecutils.CodecUtils.getString8FromBuffer( this._inputBuffer , 8, offset).trim()
-            )
+            const dataRecCount = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)?.trim()
+            if (!dataRecCount) {
+                throw new Error()
+            }
+            header.dataRecordCount = parseInt(dataRecCount)
             Log.debug(`${header.dataRecordCount} data records in file.`, SCOPE)
-        } catch (e: any) {
-            Log.error(`Failed to parse number of data records EDF header field!`, SCOPE, e)
+        } catch (e: unknown) {
+            Log.error(`Failed to parse number of data records EDF header field!`, SCOPE, e as Error)
             return
         }
         offset += 8
         try {
             // 8 ASCII : duration of a data record, in seconds.
-            header.dataRecordDuration = parseFloat(
-                codecutils.CodecUtils.getString8FromBuffer( this._inputBuffer , 8, offset).trim()
-            )
+            const dataRecDuration = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset)?.trim()
+            if (!dataRecDuration) {
+                throw new Error()
+            }
+            header.dataRecordDuration = parseFloat(dataRecDuration)
             Log.debug(`Data recordduration is ${header.dataRecordDuration} seconds.`, SCOPE)
-        } catch (e: any) {
-            Log.error(`Failed to parse duration of data record EDF header field!`, SCOPE, e)
+        } catch (e: unknown) {
+            Log.error(`Failed to parse duration of data record EDF header field!`, SCOPE, e as Error)
             return
         }
         offset += 8
         try {
             // 4 ASCII : number of signals (ns) in data record.
-            header.signalCount = parseInt(
-                codecutils.CodecUtils.getString8FromBuffer( this._inputBuffer , 4, offset).trim()
-            )
-            Log.debug(`${header.signalCount} signals in file.`, SCOPE)
-        } catch (e: any) {
-            Log.error(`Failed to parse number of signals EDF header field!`, SCOPE, e)
+            const signalCount = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 4, offset)?.trim()
+            if (signalCount === null || signalCount === undefined) {
+                throw new Error()
+            }
+            header.signalCount = parseInt(signalCount)
+            if (!header.signalCount) {
+                Log.warn(`Number of signals in file is zero.`, SCOPE)
+            } else {
+                Log.debug(`${header.signalCount} signals in file.`, SCOPE)
+            }
+        } catch (e: unknown) {
+            Log.error(`Failed to parse number of signals EDF header field!`, SCOPE, e as Error)
             return
         }
         offset += 4
@@ -576,19 +640,28 @@ export default class EdfDecoder implements FileDecoder {
         }
         /** Parse signal info fields. */
         const getAllSections = (sectionBytes: number) => {
-            const allThings = []
+            if (!this._inputBuffer) {
+                return []
+            }
+            const allFields = []
             for (let i=0; i<header.signalCount; i++) {
                 try {
-                    allThings.push(
-                        codecutils.CodecUtils.getString8FromBuffer( this._inputBuffer , sectionBytes, offset).trim()
-                    )
-                } catch (e: any) {
-                    Log.error(`Failed to parse signal info at index ${i} from EDF header!`, SCOPE, e)
-                    return null
+                    const nextField = codecutils.CodecUtils.getString8FromBuffer(
+                                        this._inputBuffer,
+                                        sectionBytes,
+                                        offset
+                                      )?.trim()
+                    if (!nextField) {
+                        throw new Error()
+                    }
+                    allFields.push(nextField)
+                } catch (e: unknown) {
+                    Log.error(`Failed to parse signal info at index ${i} from EDF header!`, SCOPE, e as Error)
+                    return []
                 }
                 offset += sectionBytes
             }
-            return allThings
+            return allFields
         }
         const signalInfoArrays = {
             // ns * 16 ASCII : ns * label (e.g. EEG Fpz-Cz or Body temp).

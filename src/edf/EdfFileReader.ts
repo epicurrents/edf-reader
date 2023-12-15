@@ -13,8 +13,8 @@ const SCOPE = 'EdfFileReader'
 
 export default class EdfFileReader extends SignalFileLoader {
 
-    constructor (callback: ((message: any) => void), postMessage: (message: string) => void) {
-        super(callback, postMessage)
+    constructor (callback: ((message: MessageEvent) => void), postMessage: (message: string) => void) {
+        super(callback as (update: unknown) => void, postMessage)
     }
 
     /**

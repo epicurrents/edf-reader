@@ -175,7 +175,7 @@ export default class EdfRecording extends GenericBiosignalHeaders {
             return new Float32Array()
         }
         let totalSize = 0
-        for (var i=recordStart; i<recordStart + howMany; i++) {
+        for (let i=recordStart; i<recordStart + howMany; i++) {
             totalSize += this._physicalSignals[index][i].length
         }
         const concatSignal = new Float32Array(totalSize)
