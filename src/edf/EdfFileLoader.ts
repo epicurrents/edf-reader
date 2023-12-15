@@ -8,6 +8,9 @@
 import { GenericBiosignalHeaders, GenericFileLoader } from '@epicurrents/core'
 import { safeObjectFrom, secondsToTimeString } from '@epicurrents/core/dist/util'
 import {
+    type ConfigLoadHeader,
+    type ConfigLoadSignals,
+    type ConfigLoadUrl,
     type SignalFileLoader,
     type StudyContextFile,
     type StudyFileContext,
@@ -69,7 +72,7 @@ export default class EdfFileLoader extends GenericFileLoader implements SignalFi
         return studyFile
     }
 
-    loadHeader (source: ArrayBuffer, config = {} as any) {
+    loadHeader (source: ArrayBuffer, config?: ConfigLoadHeader) {
         this._decoder.setInput(source)
         this._decoder.decodeHeader(true)
         const edfRecording = this._decoder.output
@@ -111,7 +114,7 @@ export default class EdfFileLoader extends GenericFileLoader implements SignalFi
         return meta.header
     }
 
-    async loadSignals (source: ArrayBuffer, config = {} as any) {
+    async loadSignals (source: ArrayBuffer, config?: ConfigLoadSignals) {
         this._decoder.appendInput(source)
         this._decoder.decodeHeader()
         const fullHeader = this._decoder.output
@@ -159,7 +162,7 @@ export default class EdfFileLoader extends GenericFileLoader implements SignalFi
         this._study.scope = EdfFileLoader.SCOPES.BIOSIGNAL
     }
 
-    async loadUrl (source: string | StudyFileContext, config = {} as any) {
+    async loadUrl (source: string | StudyFileContext, config?: ConfigLoadUrl) {
         const url = (source as StudyFileContext).url || source as string
         Log.debug(`Loading EDF from url ${url}.`, SCOPE)
         const studyFile = {
@@ -180,7 +183,7 @@ export default class EdfFileLoader extends GenericFileLoader implements SignalFi
             const mainHeader = await fetch(url, {
                 headers: headers,
             })
-            const edfHeader = await this.loadHeader(await mainHeader.arrayBuffer(), config)
+            const edfHeader = await this.loadHeader(await mainHeader.arrayBuffer(), config?.headerLoader)
             if (!edfHeader) {
                 Log.error("Could not load EDF headers from given URL.", SCOPE)
                 return null
@@ -190,7 +193,7 @@ export default class EdfFileLoader extends GenericFileLoader implements SignalFi
             const fullHeader = await fetch(url, {
                 headers: headers,
             })
-            await this.loadSignals(await fullHeader.arrayBuffer(), config)
+            await this.loadSignals(await fullHeader.arrayBuffer(), config?.signalLoader)
         } catch (e: any) {
             Log.error("EDF header parsing error!", SCOPE, e)
             return null
