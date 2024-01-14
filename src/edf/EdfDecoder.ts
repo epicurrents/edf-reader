@@ -651,7 +651,7 @@ export default class EdfDecoder implements FileDecoder {
                                         sectionBytes,
                                         offset
                                       )?.trim()
-                    if (!nextField) {
+                    if (nextField === undefined) {
                         throw new Error()
                     }
                     allFields.push(nextField)
