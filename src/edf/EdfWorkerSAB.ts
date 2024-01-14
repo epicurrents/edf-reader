@@ -18,12 +18,6 @@ import {
     sleep,
 } from '@epicurrents/core/dist/util'
 import {
-    COMBINING_SIGNALS_FAILED,
-    SIGNAL_CACHE_NOT_INITIALIZED,
-    STUDY_PARAMETERS_NOT_SET,
-    CACHE_ALREADY_INITIALIZED,
-} from '@epicurrents/core/dist/errors/workers'
-import {
     type AppSettings,
     type BiosignalAnnotation,
     type BiosignalChannel,
@@ -311,20 +305,20 @@ const cacheNewDataGaps = (newGaps: Map<number, number>) => {
  */
 const cacheSignalsFromUrl = async (startFrom: number = 0) => {
     if (!RECORDING.header) {
-        log(postMessage, 'ERROR', [`Could not cache signals.`, STUDY_PARAMETERS_NOT_SET], SCOPE)
+        log(postMessage, 'ERROR', [`Could not cache signals.`, `Study parameters have not been set.`], SCOPE)
         postMessage({
             action: 'cache-signals-from-url',
             success: false,
-            error: STUDY_PARAMETERS_NOT_SET
+            error: `Study parameters have not been set.`
         })
         return false
     }
     if (!isMutexSetup) {
-        log(postMessage, 'ERROR', [`Could not cache signals.`, SIGNAL_CACHE_NOT_INITIALIZED], SCOPE)
+        log(postMessage, 'ERROR', [`Could not cache signals.`, `Signal cache has not been initialized.`], SCOPE)
         postMessage({
             action: 'cache-signals-from-url',
             success: false,
-            error: SIGNAL_CACHE_NOT_INITIALIZED
+            error: `Signal cache has not been initialized.`
         })
         return false
     }
@@ -1029,7 +1023,7 @@ const loadAndCachePart = async (start: number, process?: SignalCacheProcess) => 
                     postMessage({
                         action: 'get-signals',
                         success: false,
-                        error: COMBINING_SIGNALS_FAILED
+                        error: `Combining new and existing signals failed.`
                     })
                     return NUMERIC_ERROR_VALUE
                 }
@@ -1130,7 +1124,7 @@ const setupCache = async (buffer: SharedArrayBuffer, bufferStart: number) => {
         return true
     }
     if (!RECORDING.header) {
-        log(postMessage, 'ERROR', [`Cannot initialize mutex cache.`, STUDY_PARAMETERS_NOT_SET], SCOPE)
+        log(postMessage, 'ERROR', [`Cannot initialize mutex cache.`, `Study parameters have not been set.`], SCOPE)
         return false
     }
     // Construct a SignalCachePart to initialize the mutex.
@@ -1166,7 +1160,10 @@ const setupCache = async (buffer: SharedArrayBuffer, bufferStart: number) => {
 const setupStudy = async (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string) => {
     // Make sure there aren't any cached signals yet.
     if (CACHE?.outputSignalArrays.length) {
-        log(postMessage, 'ERROR', [`Could not set study parameters.`, CACHE_ALREADY_INITIALIZED], SCOPE)
+        log(postMessage,
+            'ERROR',
+            [`Could not set study parameters.`, `Signal cache has already been initialized.`],
+        SCOPE)
         return false
     }
     DECODER = new EdfDecoder(undefined, undefined, edfHeader)
