@@ -7,5 +7,11 @@
  * @license    Apache-2.0
  */
 
+import EdfFileLoader from '../src/edf/EdfFileLoader'
+
 describe('EpiCurrents EDF file loader tests', () => {
+    test('Create and instance of file loader', () => {
+        const loader = new EdfFileLoader()
+        expect(loader).toBeDefined()
+    })
 })
