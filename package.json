@@ -9,7 +9,7 @@
     "lint": "npm run lint:src",
     "lint:src": "node node_modules/eslint/bin/eslint src",
     "prepack": "npm run build",
-    "publish": "npm publish --access=public",
+    "release": "npm publish --access=public",
     "test": "npm run test:unit",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --verbose --no-cache --runInBand"
   },
