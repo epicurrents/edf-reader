@@ -3,4 +3,5 @@
 .vscode
 node_modules
 dist/*
+umd/*
 tests/coverage

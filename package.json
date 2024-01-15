@@ -6,6 +6,8 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "node node_modules/typescript/bin/tsc && node node_modules/tsconfig-replace-paths/dist/commonjs --project tsconfig.json",
+    "build:umd": "node node_modules/webpack/bin/webpack.js --progress --config webpack.config.js",
+    "dev": "node node_modules/webpack/bin/webpack.js serve --progress --config webpack.dev.js",
     "lint": "npm run lint:src",
     "lint:src": "node node_modules/eslint/bin/eslint src",
     "prepack": "npm run build",
@@ -55,12 +57,15 @@
     "babel-jest": "^27.5.1",
     "babel-loader": "^8.2.5",
     "circular-dependency-plugin": "^5.2.2",
-    "dotenv": "^16.0.1",
+    "dotenv-webpack": "^8.0.1",
     "eslint": "^8.55.0",
     "jest": "^27.5.1",
     "ts-jest": "^27.1.5",
     "ts-loader": "^9.3.0",
     "tsconfig-replace-paths": "^0.0.14",
-    "typescript": "^4.7.3"
+    "typescript": "^4.7.3",
+    "webpack-bundle-analyzer": "^4.10.1",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.15.1"
   }
 }
