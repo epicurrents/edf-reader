@@ -33,9 +33,17 @@ export default class EdfFileLoader extends GenericFileLoader implements SignalFi
 
     getFileTypeWorker (): Worker | null {
         if (this._app.useMemoryManager) {
-            return new Worker(new URL('./EdfWorkerSAB.ts', import.meta.url), { type: 'module' })
+            return new Worker(
+                /* webpackChunkName: 'edf-worker-sab' */
+                new URL('./EdfWorkerSAB.ts', import.meta.url),
+                { type: 'module' }
+            )
         } else {
-            return new Worker(new URL('./EdfWorker.ts', import.meta.url), { type: 'module' })
+            return new Worker(
+                /* webpackChunkName: 'edf-worker' */
+                new URL('./EdfWorker.ts', import.meta.url),
+                { type: 'module' }
+            )
         }
     }
 
