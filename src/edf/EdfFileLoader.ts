@@ -22,9 +22,11 @@ const SCOPE = 'EdfFileLoader'
 
 export default class EdfFileLoader extends GenericFileLoader implements SignalFileLoader {
     protected _decoder = new EdfDecoder()
+    protected _useSAB: boolean
 
-    constructor () {
+    constructor (useSAB = false) {
         super(SCOPE, [], ['.edf'])
+        this._useSAB = useSAB
     }
 
     get fileType () {
@@ -32,7 +34,7 @@ export default class EdfFileLoader extends GenericFileLoader implements SignalFi
     }
 
     getFileTypeWorker (): Worker | null {
-        if (this._app.useMemoryManager) {
+        if (this._useSAB) {
             return new Worker(
                 /* webpackChunkName: 'edf-sab.worker' */
                 new URL('../workers/edf-sab.worker.ts', import.meta.url),
