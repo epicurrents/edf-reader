@@ -26,8 +26,8 @@ import {
     type SignalCacheProcess,
     type WorkerMessage,
 } from '@epicurrents/core/dist/types'
-import EdfDecoder from './EdfDecoder'
-import EdfFileReader from './EdfFileReader'
+import EdfDecoder from '../edf/EdfDecoder'
+import EdfFileReader from '../edf/EdfFileReader'
 import { type EdfHeader, type EdfSignalPart } from '#types/edf'
 import IOMutex from 'asymmetric-io-mutex'
 import { log } from '@epicurrents/core/dist/util'

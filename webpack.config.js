@@ -1,4 +1,5 @@
 const path = require('path')
+const webpack = require('webpack')
 const TerserPlugin = require('terser-webpack-plugin')
 
 module.exports = {
@@ -20,6 +21,9 @@ module.exports = {
         minimizer: [
             new TerserPlugin(),
         ],
+        runtimeChunk: {
+            name: 'shared',
+        },
     },
     output: {
         path: path.resolve(__dirname, 'umd'),
