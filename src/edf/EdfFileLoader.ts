@@ -36,14 +36,14 @@ export default class EdfFileLoader extends GenericFileLoader implements SignalFi
     getFileTypeWorker (): Worker | null {
         if (this._useSAB) {
             const workerOverride = this._workerOverride.get('edf-sab')
-            return workerOverride || new Worker(
+            return workerOverride ? workerOverride() : new Worker(
                 /* webpackChunkName: 'edf-sab.worker' */
                 new URL('../workers/edf-sab.worker', import.meta.url),
                 { type: 'module' }
             )
         } else {
             const workerOverride = this._workerOverride.get('edf')
-            return workerOverride || new Worker(
+            return workerOverride ? workerOverride() : new Worker(
                 /* webpackChunkName: 'edf.worker' */
                 new URL('../workers/edf.worker', import.meta.url),
                 { type: 'module' }
