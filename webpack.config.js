@@ -28,7 +28,7 @@ module.exports = {
     output: {
         path: path.resolve(__dirname, 'umd'),
         publicPath: ASSET_PATH,
-        library: 'EdfFileLoader',
+        library: 'EpiCEdfLoader',
         libraryTarget: 'umd',
     },
     resolve: {
