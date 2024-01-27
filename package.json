@@ -1,6 +1,6 @@
 {
   "name": "@epicurrents/edf-file-loader",
-  "version": "0.0.1-13",
+  "version": "0.0.1-14",
   "description": "EpiCurrents EDF file loader",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
