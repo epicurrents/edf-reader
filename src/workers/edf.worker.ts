@@ -30,7 +30,7 @@ import EdfDecoder from '../edf/EdfDecoder'
 import EdfFileReader from '../edf/EdfFileReader'
 import { type EdfHeader, type EdfSignalPart } from '#types/edf'
 import IOMutex from 'asymmetric-io-mutex'
-import { log } from '@epicurrents/core/dist/util'
+import { Log } from 'scoped-ts-log'
 
 const SCOPE = "EdfWorker"
 
@@ -85,12 +85,12 @@ onmessage = async (message: WorkerMessage) => {
         return
     }
     const action = message.data.action
-    log(postMessage, 'DEBUG', `Received message with action ${action}.`, SCOPE)
+    Log.debug(`Received message with action ${action}.`, SCOPE)
     if (action === 'cache-signals-from-url') {
         try {
             cacheSignalsFromUrl()
         } catch (e) {
-            log(postMessage, 'ERROR',
+            Log.error(
                 `An error occurred while trying to cache signals, operation was aborted.`,
             SCOPE, e as Error)
         }
@@ -99,7 +99,7 @@ onmessage = async (message: WorkerMessage) => {
         // so whenever raw signals are requested and very rarely in other cases. Thus no need to use a lot of
         // time to optimize this method.
         if (!CACHE.signals.length) {
-            log(postMessage, 'ERROR', `Cannot return signals if signal cache is not yet initialized.`, SCOPE)
+            Log.error(`Cannot return signals if signal cache is not yet initialized.`, SCOPE)
             postMessage({
                 action: action,
                 success: false,
@@ -132,7 +132,7 @@ onmessage = async (message: WorkerMessage) => {
                 })
             }
         } catch (e) {
-            log(postMessage, 'ERROR', `Getting signals failed.`, 'EdfWorker', e)
+            Log.error(`Getting signals failed.`, 'EdfWorker', e as Error)
             postMessage({
                 action: action,
                 success: false,
@@ -165,7 +165,7 @@ onmessage = async (message: WorkerMessage) => {
         // Check EDF header.
         const formatHeader = message.data.formatHeader as EdfHeader | undefined
         if (!formatHeader) {
-            log(postMessage, 'ERROR', `Commission is missing a format-specific header.`, 'EdfWorker')
+            Log.error(`Commission is missing a format-specific header.`, 'EdfWorker')
             postMessage({
                 action: action,
                 success: false,
@@ -175,7 +175,7 @@ onmessage = async (message: WorkerMessage) => {
         }
         const reserved = formatHeader.reserved as string | undefined
         if (!reserved?.startsWith('EDF')) {
-            log(postMessage, 'ERROR', `Format-specific header is not an EDF-compatible format.`, 'EdfWorker')
+            Log.error(`Format-specific header is not an EDF-compatible format.`, 'EdfWorker')
             postMessage({
                 action: action,
                 success: false,
@@ -185,7 +185,7 @@ onmessage = async (message: WorkerMessage) => {
         }
         const header = message.data.header as BiosignalHeaderRecord | undefined
         if (!header) {
-            log(postMessage, 'ERROR', `Commission is missing a generic biosignal header.`, 'EdfWorker')
+            Log.error(`Commission is missing a generic biosignal header.`, 'EdfWorker')
             postMessage({
                 action: action,
                 success: false,
@@ -195,7 +195,7 @@ onmessage = async (message: WorkerMessage) => {
         }
         const url = message.data.url as string | undefined
         if (!url) {
-            log(postMessage, 'ERROR', `Commission is missing a source URL.`, 'EdfWorker')
+            Log.error(`Commission is missing a source URL.`, 'EdfWorker')
             postMessage({
                 action: action,
                 success: false,
@@ -224,8 +224,7 @@ onmessage = async (message: WorkerMessage) => {
         Object.assign(SETTINGS, message.data.settings)
     }
 }
-// This CANNOT be defined before onmessage.
-const fileLoader = new EdfFileReader(onmessage, postMessage)
+const fileLoader = new EdfFileReader()
 
 /**
  * Add new, unique annotations to the annotation cache.
@@ -282,7 +281,7 @@ const cacheNewDataGaps = (newGaps: Map<number, number>) => {
  */
 const cacheSignalsFromUrl = async () => {
     if (!RECORDING.header) {
-        log(postMessage, 'ERROR', [`Could not cache signals.`, `Study parameters have not been set.`], SCOPE)
+        Log.error([`Could not cache signals.`, `Study parameters have not been set.`], SCOPE)
         postMessage({
             action: 'cache-signals-from-url',
             success: false,
@@ -291,7 +290,7 @@ const cacheSignalsFromUrl = async () => {
         return false
     }
     if (!isCacheSetup) {
-        log(postMessage, 'ERROR', [`Could not cache signals.`, `Signal cache has not been initialized.`], SCOPE)
+        Log.error([`Could not cache signals.`, `Signal cache has not been initialized.`], SCOPE)
         postMessage({
             action: 'cache-signals-from-url',
             success: false,
@@ -305,7 +304,7 @@ const cacheSignalsFromUrl = async () => {
     const cacheTargets = cacheProcesses.map(proc => proc.target)
     // If we're at the start of the recording and can cache it entirely, just do that.
     if (SETTINGS.app.maxLoadCacheSize >= totalSignalDataSize) {
-        log(postMessage, 'DEBUG', `Loading the whole recording to cache.`, SCOPE)
+        Log.debug(`Loading the whole recording to cache.`, SCOPE)
         const requestedPart = {
             start: 0,
             end: RECORDING.dataLength,
@@ -344,7 +343,7 @@ const cacheSignalsFromUrl = async () => {
             }
         }
     } else {
-        log(postMessage, "ERROR",
+        Log.error(
             `Required amount of memory ${totalSignalDataSize} exceeds available memory ` +
             `${SETTINGS.app.maxLoadCacheSize}.`,
         SCOPE)
@@ -359,7 +358,7 @@ const cacheSignalsFromUrl = async () => {
  */
 const cacheTimeToRecordingTime = (time: number): number => {
     if (!RECORDING.header) {
-        log(postMessage, 'ERROR',
+        Log.error(
             `Cannot convert cache time to recording time before study parameters have been set.`,
         SCOPE)
         return NUMERIC_ERROR_VALUE
@@ -368,7 +367,7 @@ const cacheTimeToRecordingTime = (time: number): number => {
         return time
     }
     if (time < 0 || time > RECORDING.dataLength) {
-        log(postMessage, 'ERROR',
+        Log.error(
             `Cannot convert cache time to recording time, given time ${time} is out of recording bounds ` +
             `(0 - ${RECORDING.dataLength}).`,
         SCOPE)
@@ -387,13 +386,13 @@ const cacheTimeToRecordingTime = (time: number): number => {
  */
 const dataRecordIndexToTime = (index: number) => {
     if (!RECORDING.header) {
-        log(postMessage, 'ERROR',
+        Log.error(
             `Cannot convert data record index to time before study parameters have been set.`,
         SCOPE)
         return NUMERIC_ERROR_VALUE
     }
     if (index < 0 || index > RECORDING.header.dataRecordCount) {
-        log(postMessage, 'ERROR',
+        Log.error(
             `Cannot convert data record index to time, given index ${index} is out of recording bounds ` +
             `(0 - ${RECORDING.header.dataRecordCount}).`,
         SCOPE)
@@ -418,19 +417,19 @@ const getAnnotations = (range?: number[]): BiosignalAnnotation[] =>{
                          ? [range[0], Math.min(range[1], RECORDING.totalLength)]
                          : [0, RECORDING.totalLength]
     if (!RECORDING.header) {
-        log(postMessage, 'ERROR', "Cannot load annotations, recording header has not been loaded yet.", SCOPE)
+        Log.error("Cannot load annotations, recording header has not been loaded yet.", SCOPE)
         return []
     }
     if (!isCacheSetup) {
-        log(postMessage, 'ERROR', `Cannot load annoations before signal cache has been initiated.`, SCOPE)
+        Log.error(`Cannot load annoations before signal cache has been initiated.`, SCOPE)
         return []
     }
     if (start < 0 || start >= RECORDING.totalLength) {
-        log(postMessage, 'ERROR', `Requested annotation range ${start} - ${end} was out of recording bounds.`, SCOPE)
+        Log.error(`Requested annotation range ${start} - ${end} was out of recording bounds.`, SCOPE)
         return []
     }
     if (start >= end) {
-        log(postMessage, 'ERROR', `Requested annotation range ${start} - ${end} was empty or invalid.`, SCOPE)
+        Log.error(`Requested annotation range ${start} - ${end} was empty or invalid.`, SCOPE)
         return []
     }
     const annotations = [] as BiosignalAnnotation[]
@@ -456,15 +455,15 @@ const getDataGaps = (range?: number[]): { duration: number, start: number }[] =>
                          : [0, RECORDING.totalLength]
     const dataGaps = [] as { duration: number, start: number }[]
     if (!RECORDING.header) {
-        log(postMessage, 'ERROR', "Cannot load data gaps, recording header has not been loaded yet.", SCOPE)
+        Log.error("Cannot load data gaps, recording header has not been loaded yet.", SCOPE)
         return dataGaps
     }
     if (!isCacheSetup) {
-        log(postMessage, 'ERROR', `Cannot return data gaps before signal buffers have been initiated.`, SCOPE)
+        Log.error(`Cannot return data gaps before signal buffers have been initiated.`, SCOPE)
         return dataGaps
     }
     if (start < 0) {
-        log(postMessage, 'ERROR', `Requested data gap range start ${start} was smaller than zero.`, SCOPE)
+        Log.error(`Requested data gap range start ${start} was smaller than zero.`, SCOPE)
         return dataGaps
     }
     if (start >= end - RECORDING.header.dataRecordDuration) {
@@ -518,7 +517,7 @@ const getSignalCacheRange = () => {
         return { start: NUMERIC_ERROR_VALUE, end: NUMERIC_ERROR_VALUE }
     }
     if (!CACHE.end || CACHE.start === CACHE.end) {
-        log(postMessage, 'ERROR',
+        Log.error(
             `Signal cache does not have a valid range: ${CACHE.start} - ${CACHE.end}.`,
         SCOPE)
         return { start: NUMERIC_ERROR_VALUE, end: NUMERIC_ERROR_VALUE }
@@ -537,23 +536,23 @@ const getSignalPart = async (start: number, end: number, unknown = true)
     : Promise<EdfSignalPart | null> =>
 {
     if (!DECODER || !RECORDING.header || !RECORDING.dataRecordSize || !fileLoader.dataUnitSize) {
-        log(postMessage, 'ERROR', "Cannot load file part, study has not been set up yet.", SCOPE)
+        Log.error("Cannot load file part, study has not been set up yet.", SCOPE)
         return null
     }
     if (!isCacheSetup) {
-        log(postMessage, 'ERROR', `Cannot load file part before signal buffers have been initiated.`, SCOPE)
+        Log.error(`Cannot load file part before signal buffers have been initiated.`, SCOPE)
         return null
     }
     if (!RECORDING.header.dataRecordDuration) {
-        log(postMessage, 'ERROR', "Cannot load file part, recording data record duration is zero.", SCOPE)
+        Log.error("Cannot load file part, recording data record duration is zero.", SCOPE)
         return null
     }
     if (start < 0 || start >= RECORDING.totalLength) {
-        log(postMessage, 'ERROR', `Requested signal range ${start} - ${end} was out of recording bounds.`, SCOPE)
+        Log.error(`Requested signal range ${start} - ${end} was out of recording bounds.`, SCOPE)
         return null
     }
     if (start >= end) {
-        log(postMessage, 'ERROR', `Requested signal range ${start} - ${end} was empty or invalid.`, SCOPE)
+        Log.error(`Requested signal range ${start} - ${end} was empty or invalid.`, SCOPE)
         return null
     }
     if (end > RECORDING.totalLength) {
@@ -565,7 +564,7 @@ const getSignalPart = async (start: number, end: number, unknown = true)
     const fileEnd = end - priorGaps - innerGaps
     const filePart = await fileLoader.loadPartFromFile(fileStart, fileEnd - fileStart)
     if (!filePart) {
-        log(postMessage, 'ERROR', `File loader couldn't load EDF part between ${fileStart}-${fileEnd}.`, SCOPE)
+        Log.error(`File loader couldn't load EDF part between ${fileStart}-${fileEnd}.`, SCOPE)
         return { signals: [], start: start, end: end }
     }
     const recordsPerSecond = 1/RECORDING.header.dataRecordDuration
@@ -575,15 +574,15 @@ const getSignalPart = async (start: number, end: number, unknown = true)
         const startPos = Math.round((fileStart - filePart.start)*RECORDING.dataRecordSize*recordsPerSecond)
         const endPos = startPos + Math.round((filePart.length)*RECORDING.dataRecordSize*recordsPerSecond)
         if (startPos < 0) {
-            log(postMessage, 'ERROR', `File starting position is smaller than zero (${startPos})!`, SCOPE)
+            Log.error(`File starting position is smaller than zero (${startPos})!`, SCOPE)
             throw new Error()
         }
         if (startPos >= endPos) {
-            log(postMessage, 'ERROR', `File starting position is greater than ending position (${startPos} > ${endPos})!`, SCOPE)
+            Log.error(`File starting position is greater than ending position (${startPos} > ${endPos})!`, SCOPE)
             throw new Error()
         }
         if (endPos > filePart.data.size) {
-            log(postMessage, 'WARN', `File ending position is greater than the file size (${endPos} > ${filePart.data.size})!`, SCOPE)
+            Log.warn(`File ending position is greater than the file size (${endPos} > ${filePart.data.size})!`, SCOPE)
             filePart.length = (filePart.data.size - startPos)/(RECORDING.dataRecordSize*recordsPerSecond)
         }
         const chunk = filePart.data.slice(startPos, Math.min(endPos, filePart.data.size))
@@ -638,7 +637,7 @@ const getSignalPart = async (start: number, end: number, unknown = true)
             dataGaps: edfData.dataGaps,
         }
     } catch (e) {
-        log(postMessage, 'ERROR', `Failed to load signal part between ${start} and ${end}!`, SCOPE, e as Error)
+        Log.error(`Failed to load signal part between ${start} and ${end}!`, SCOPE, e as Error)
         return null
     }
 }
@@ -650,21 +649,21 @@ const getSignalPart = async (start: number, end: number, unknown = true)
  */
 const getSignals = async (range: number[], config?: ConfigChannelFilter) => {
     if (!RECORDING.header || !CACHE) {
-        log(postMessage, 'ERROR', "Cannot load signals, signal buffers have not been set up yet.", SCOPE)
+        Log.error("Cannot load signals, signal buffers have not been set up yet.", SCOPE)
         return null
     }
     if (!isCacheSetup) {
-        log(postMessage, 'ERROR', `Cannot load signals before signal buffers have been initiated.`, SCOPE)
+        Log.error(`Cannot load signals before signal buffers have been initiated.`, SCOPE)
         return null
     }
     if (range[0] === range[1]) {
-        log(postMessage, 'ERROR', `Cannot load signals from an empty range ${range[0]} - ${range[1]}.`, SCOPE)
+        Log.error(`Cannot load signals from an empty range ${range[0]} - ${range[1]}.`, SCOPE)
         return null
     }
     // Get current signal cache range.
     const bufferRange = await getSignalCacheRange()
     if (bufferRange.start >= bufferRange.end) {
-        log(postMessage, 'ERROR', `The signal cache mutex did not return a valid signal range.`, SCOPE)
+        Log.error(`The signal cache mutex did not return a valid signal range.`, SCOPE)
         return null
     }
     let requestedSigs: SignalCachePart | null = null
@@ -676,7 +675,7 @@ const getSignals = async (range: number[], config?: ConfigChannelFilter) => {
                 return null
             }
         } catch (e) {
-            log(postMessage, 'ERROR', `Loading signals for range [${range[0]}, ${range[1]}] failed.`, SCOPE, e as Error)
+            Log.error(`Loading signals for range [${range[0]}, ${range[1]}] failed.`, SCOPE, e as Error)
             return null
         }
     }
@@ -684,7 +683,7 @@ const getSignals = async (range: number[], config?: ConfigChannelFilter) => {
     const loadedSignals = getSignalUpdatedRange()
     if (loadedSignals.start === NUMERIC_ERROR_VALUE || loadedSignals.end === NUMERIC_ERROR_VALUE) {
         if (!cacheProcesses.length) {
-            log(postMessage, 'ERROR', `Loading signals for range [${range[0]}, ${range[1]}] failed, cannot read updated signal ranges.`, SCOPE)
+            Log.error(`Loading signals for range [${range[0]}, ${range[1]}] failed, cannot read updated signal ranges.`, SCOPE)
             return null
         }
     }
@@ -695,7 +694,7 @@ const getSignals = async (range: number[], config?: ConfigChannelFilter) => {
         ) &&
         cacheProcesses.length
     ) {
-        log(postMessage, 'DEBUG', `Requested signals have not been loaded yet, waiting for ${(AWAIT_SIGNALS_TIME/1000)} seconds.`, SCOPE)
+        Log.debug(`Requested signals have not been loaded yet, waiting for ${(AWAIT_SIGNALS_TIME/1000)} seconds.`, SCOPE)
         // Set up a promise to wait for an active data loading process to load the missing data.
         const dataUpdatePromise = new Promise<void>((resolve) => {
             awaitData = {
@@ -708,7 +707,7 @@ const getSignals = async (range: number[], config?: ConfigChannelFilter) => {
         if (awaitData?.timeout) {
             clearTimeout(awaitData.timeout as number)
         } else {
-            log(postMessage, 'DEBUG', `Timeout reached when waiting for missing signals.`, SCOPE)
+            Log.debug(`Timeout reached when waiting for missing signals.`, SCOPE)
         }
         awaitData = null
     }
@@ -720,7 +719,7 @@ const getSignals = async (range: number[], config?: ConfigChannelFilter) => {
             if (config.include.indexOf(i) !== -1) {
                 included.push(i)
             } else {
-                log(postMessage, 'DEBUG', `Not including channel #${i} in requested signals.`, SCOPE)
+                Log.debug(`Not including channel #${i} in requested signals.`, SCOPE)
             }
         }
     } else if (config?.exclude?.length) {
@@ -728,7 +727,7 @@ const getSignals = async (range: number[], config?: ConfigChannelFilter) => {
             if (config.exclude.indexOf(i) === -1) {
                 included.push(i)
             } else {
-                log(postMessage, 'DEBUG', `Excuding channel #${i} from requested signals.`, SCOPE)
+                Log.debug(`Excuding channel #${i} from requested signals.`, SCOPE)
             }
         }
     }
@@ -795,7 +794,7 @@ const getSignalUpdatedRange = () => {
     })
     const srs = CACHE.signals.map(s => s.samplingRate)
     if (!ranges || !srs) {
-        log(postMessage, 'ERROR',
+        Log.error(
             `Signal updated ranges or sampling rates are not valid.`,
         SCOPE)
         return { start: NUMERIC_ERROR_VALUE, end: NUMERIC_ERROR_VALUE }
@@ -810,7 +809,7 @@ const getSignalUpdatedRange = () => {
         }
         const range = ranges[i]
         if (!range) {
-            log(postMessage, 'ERROR',
+            Log.error(
                 `Updated range for signal at index ${i} is nto valid.`,
             SCOPE)
             return { start: NUMERIC_ERROR_VALUE, end: NUMERIC_ERROR_VALUE }
@@ -820,16 +819,16 @@ const getSignalUpdatedRange = () => {
         if (range.start !== IOMutex.EMPTY_FIELD) {
             highestStart = (highestStart === NUMERIC_ERROR_VALUE || tStart > highestStart) ? tStart : highestStart
         } else {
-            log(postMessage, 'WARN', `Signal #${i} has not updated start position set.`, SCOPE)
+            Log.warn(`Signal #${i} has not updated start position set.`, SCOPE)
         }
         if (range.end !== IOMutex.EMPTY_FIELD) {
             lowestEnd = (lowestEnd === NUMERIC_ERROR_VALUE || tEnd < lowestEnd) ? tEnd : lowestEnd
         } else {
-            log(postMessage, 'WARN', `Signal #${i} has not updated end position set.`, SCOPE)
+            Log.warn(`Signal #${i} has not updated end position set.`, SCOPE)
         }
     }
     if (highestStart === NUMERIC_ERROR_VALUE && lowestEnd === NUMERIC_ERROR_VALUE) {
-        log(postMessage, 'ERROR', `Cannot get ranges of updated signals, cache has no initialized signals.`, SCOPE)
+        Log.error(`Cannot get ranges of updated signals, cache has no initialized signals.`, SCOPE)
         return { start: NUMERIC_ERROR_VALUE, end: NUMERIC_ERROR_VALUE }
     }
     return { start: cacheTimeToRecordingTime(highestStart), end: cacheTimeToRecordingTime(lowestEnd) }
@@ -843,11 +842,11 @@ const getSignalUpdatedRange = () => {
  */
 const loadAndCachePart = async (start: number, process?: SignalCacheProcess) => {
     if (!RECORDING.header || !CACHE) {
-        log(postMessage, 'DEBUG', `Could not load and cache part, recording or cache was not set up.`, SCOPE)
+        Log.debug(`Could not load and cache part, recording or cache was not set up.`, SCOPE)
         return NUMERIC_ERROR_VALUE
     }
     if (start < 0 || start >= RECORDING.totalLength) {
-        log(postMessage, 'DEBUG', `Could not load and cache part, start position was out of range.`, SCOPE)
+        Log.debug(`Could not load and cache part, start position was out of range.`, SCOPE)
         return NUMERIC_ERROR_VALUE
     }
     const dataChunkRecords = Math.max(
@@ -862,7 +861,7 @@ const loadAndCachePart = async (start: number, process?: SignalCacheProcess) => 
         finalRecord
     )
     if (nextRecord === startRecord + 1) {
-        log(postMessage, 'DEBUG', `Loading complete at record index ${nextRecord}.`, SCOPE)
+        Log.debug(`Loading complete at record index ${nextRecord}.`, SCOPE)
         // End of the line
         return nextRecord
     }
@@ -883,7 +882,7 @@ const loadAndCachePart = async (start: number, process?: SignalCacheProcess) => 
                 updated.start === NUMERIC_ERROR_VALUE ||
                 updated.end === NUMERIC_ERROR_VALUE
             ) {
-                log(postMessage, 'ERROR', `Inserting new signals to cache failed.`, SCOPE)
+                Log.error(`Inserting new signals to cache failed.`, SCOPE)
                 return NUMERIC_ERROR_VALUE
             }
             // Report signal cache progress and send new annotation and data gap information.
@@ -897,7 +896,7 @@ const loadAndCachePart = async (start: number, process?: SignalCacheProcess) => 
             })
             if (awaitData) {
                 if (awaitData.range[0] >= updated.start && awaitData.range[1] <= updated.end) {
-                    log(postMessage, 'DEBUG', `Awaited data loaded, resolving.`, SCOPE)
+                    Log.debug(`Awaited data loaded, resolving.`, SCOPE)
                     awaitData.resolve()
                 }
             }
@@ -905,7 +904,7 @@ const loadAndCachePart = async (start: number, process?: SignalCacheProcess) => 
             if (process) {
                 // Update process.
                 if (!combineSignalParts(process, newSignals)) {
-                    log(postMessage, 'ERROR',
+                    Log.error(
                         `Failed to combine signal parts ${process.start} - ${process.end} and ` +
                         `${newSignals.start} - ${newSignals.end}.`,
                     SCOPE)
@@ -945,7 +944,7 @@ const loadAndCachePart = async (start: number, process?: SignalCacheProcess) => 
  */
 const recordingTimeToCacheTime = (time: number): number => {
     if (!RECORDING.header) {
-        log(postMessage, 'ERROR',
+        Log.error(
             `Cannot convert recording time to cache time before study parameters have been set.`,
         SCOPE)
         return NUMERIC_ERROR_VALUE
@@ -954,7 +953,7 @@ const recordingTimeToCacheTime = (time: number): number => {
         return time
     }
     if (time < 0 || time > RECORDING.totalLength) {
-        log(postMessage, 'ERROR',
+        Log.error(
             `Cannot convert recording time to cache time, given time ${time} is out of recording bounds ` +
             `(0 - ${RECORDING.totalLength}).`,
         SCOPE)
@@ -987,14 +986,14 @@ const releaseCache = () => {
  */
 const setupCache = () => {
     if (isCacheSetup) {
-        log(postMessage, 'WARN', `Tried to re-initialize already initialized cache.`, SCOPE)
+        Log.warn(`Tried to re-initialize already initialized cache.`, SCOPE)
         return true
     }
     if (!RECORDING.header) {
-        log(postMessage, 'ERROR', [`Cannot initialize worker cache.`, `Study parameters have not been set.`], SCOPE)
+        Log.error([`Cannot initialize worker cache.`, `Study parameters have not been set.`], SCOPE)
         return false
     }
-    log(postMessage, 'DEBUG', `Initiating EDF worker cache.`, SCOPE)
+    Log.debug(`Initiating EDF worker cache.`, SCOPE)
     for (const sig of RECORDING.header.signalInfo) {
         CACHE.signals.push({
             data: new Float32Array(),
@@ -1002,7 +1001,7 @@ const setupCache = () => {
                           : Math.round(sig.sampleCount/RECORDING.header.dataRecordDuration)
         })
     }
-    log(postMessage, 'DEBUG', `EDF loader cache initiation complete.`, SCOPE)
+    Log.debug(`EDF loader cache initiation complete.`, SCOPE)
     isCacheSetup = true
     return true
 }
@@ -1018,8 +1017,7 @@ const setupCache = () => {
 const setupStudy = async (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string) => {
     // Make sure there aren't any cached signals yet.
     if (CACHE.signals.length) {
-        log(postMessage,
-            'ERROR',
+        Log.error(
             [`Could not set study parameters.`, `Signal cache has already been initialized.`],
         SCOPE)
         return false
@@ -1082,13 +1080,13 @@ const setupStudy = async (header: BiosignalHeaderRecord, edfHeader: EdfHeader, u
  */
 const timeToDataRecordIndex = (time: number): number => {
     if (!RECORDING.header) {
-        log(postMessage, 'ERROR',
+        Log.error(
             `Cannot convert time to data record index before study parameters have been set.`,
         SCOPE)
         return NUMERIC_ERROR_VALUE
     }
     if (time > RECORDING.totalLength) {
-        log(postMessage, 'ERROR',
+        Log.error(
             `Cannot convert time to data record index, given itime ${time} is out of recording bounds ` +
             `(0 - ${RECORDING.totalLength}).`,
         SCOPE)
