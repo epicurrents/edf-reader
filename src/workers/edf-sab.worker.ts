@@ -19,7 +19,7 @@ import EdfFileReader from '../edf/EdfFileReader'
 import { type EdfHeader } from '#types/edf'
 import { Log } from 'scoped-ts-log'
 
-const SCOPE = "EdfWorkerSAB-next"
+const SCOPE = "EdfWorkerSAB"
 
 const LOADER = new EdfFileReader()
 
@@ -82,7 +82,7 @@ onmessage = async (message: WorkerMessage) => {
                 rn: message.data.rn,
             })
         }
-    } else if (action === 'setup-mutex') {
+    } else if (action === 'setup-cache') {
         const buffer = message.data.buffer as SharedArrayBuffer
         if (!buffer) {
             Log.error(`Commission is missing a shared array buffer.`, SCOPE)
