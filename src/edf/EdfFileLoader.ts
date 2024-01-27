@@ -38,7 +38,7 @@ export default class EdfFileLoader extends GenericFileLoader implements SignalFi
             const workerOverride = this._workerOverride.get('edf-sab')
             const worker = workerOverride ? workerOverride() : new Worker(
                 /* webpackChunkName: 'edf-sab.worker' */
-                new URL('../workers/edf-sab.next.worker', import.meta.url),
+                new URL('../workers/edf-sab.worker', import.meta.url),
                 { type: 'module' }
             )
             Log.registerWorker(worker)
