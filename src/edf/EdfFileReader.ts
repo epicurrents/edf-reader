@@ -16,7 +16,6 @@ import {
 } from '@epicurrents/core/dist/util'
 import {
     SignalCachePart,
-    type BiosignalAnnotation,
     type BiosignalChannel,
     type BiosignalHeaderRecord,
     type ConfigChannelFilter,
@@ -56,7 +55,6 @@ export default class EdfFileReader extends SignalFileLoader {
      * @param dataRecordSize - The size of a single data record in bytes.
      */
     cacheEdfInfo (header: EdfHeader, dataRecordSize: number) {
-        console.log(header)
         this._dataOffset = header.headerRecordBytes
         this._dataUnitCount = header.dataRecordCount
         this._dataUnitDuration = header.dataRecordDuration
@@ -65,14 +63,6 @@ export default class EdfFileReader extends SignalFileLoader {
         this._chunkUnitCount = this._dataUnitSize*2 < SETTINGS.app.dataChunkSize
                                 ? Math.floor(SETTINGS.app.dataChunkSize/(this._dataUnitSize)) - 1
                                 : 1
-        console.log(this._dataOffset, header.headerRecordBytes,
-            this._dataUnitCount, header.dataRecordCount,
-            this._dataUnitDuration,header.dataRecordDuration,
-            this._dataLength, this._dataUnitCount*this._dataUnitDuration,
-            this._dataUnitSize, dataRecordSize,
-            this._chunkUnitCount, this._dataUnitSize*2 < SETTINGS.app.dataChunkSize
-                                    ? Math.floor(SETTINGS.app.dataChunkSize/(this._dataUnitSize)) - 1
-                                    : 1)
         Log.debug(`Cached EDF info for recording '${header.patientId}'.`, SCOPE)
     }
 
@@ -313,12 +303,6 @@ export default class EdfFileReader extends SignalFileLoader {
             }
             const chunk = filePart.data.slice(startPos, Math.min(endPos, filePart.data.size))
             const chunkBuffer = await chunk.arrayBuffer()
-            console.log(this._header,
-                chunkBuffer,
-                0,
-                (start - priorGaps)*recordsPerSecond,
-                filePart.length/this._header.dataRecordDuration,
-                priorGaps)
             // Byte offset is always 0, as we slice the data to start from the correct position.
             // Add up all data gaps until this point.
             const edfData = this._decoder.decodeData(
@@ -680,7 +664,6 @@ export default class EdfFileReader extends SignalFileLoader {
     }
 
     async loadPartFromFile (startFrom: number, dataLength: number): Promise<SignalFilePart> {
-        console.log(startFrom, dataLength, this._dataUnitCount)
         if (!this._url.length) {
             Log.error(`Could not load file part, there is no source URL to load from.`, SCOPE)
             return null
@@ -718,7 +701,6 @@ export default class EdfFileReader extends SignalFileLoader {
             await getBlob(),
             `SignalFilePart[${startTime},${startTime + partLength}]`
         )
-        console.log(unitStart, unitEnd, startTime, partLength)
         // Cache only the visible part.
         return {
             data: signalFilePart,
@@ -801,19 +783,10 @@ export default class EdfFileReader extends SignalFileLoader {
         if (this._header.discontinuous) {
             // We need to fetch the true file duration from the last data record.
             const filePart = await this.loadPartFromFile((this._dataUnitCount - 1)*this._dataUnitDuration, 1)
-            console.log(filePart)
             if (filePart) {
                 const chunkBuffer = await filePart.data.arrayBuffer()
                 // Byte offset is always 0, as we slice the data to start from the correct position.
                 // Add up all data gaps until this point.
-                console.log(
-                    edfHeader,
-                    chunkBuffer,
-                    0,
-                    0,
-                    filePart.length/this._dataUnitDuration,
-                    0
-                )
                 const edfData = this._decoder.decodeData(
                                     edfHeader,
                                     chunkBuffer,
