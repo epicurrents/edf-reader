@@ -15,7 +15,6 @@ import {
     type StudyFileContext,
 } from '@epicurrents/core/dist/types'
 import EdfDecoder from './EdfDecoder'
-import EdfPseudoWorker from './EdfPseudoWorker'
 import { type EdfHeader, type EdfHeaderSignal } from '../types/edf'
 import Log from 'scoped-ts-log'
 
@@ -24,11 +23,9 @@ const SCOPE = 'EdfFileLoader'
 export default class EdfFileLoader extends GenericFileLoader implements SignalFileLoader {
     protected _decoder = new EdfDecoder()
     protected _useSAB: boolean
-    protected _useWorker: boolean
 
-    constructor (useWorker = true, useSAB = false) {
+    constructor (useSAB = false) {
         super(SCOPE, [], ['.edf'])
-        this._useWorker = useWorker
         this._useSAB = useSAB
     }
 
@@ -37,9 +34,6 @@ export default class EdfFileLoader extends GenericFileLoader implements SignalFi
     }
 
     getFileTypeWorker (): Worker | null {
-        if (!this._useWorker) {
-            return new EdfPseudoWorker('')
-        }
         if (this._useSAB) {
             const workerOverride = this._workerOverride.get('edf-sab')
             const worker = workerOverride ? workerOverride() : new Worker(

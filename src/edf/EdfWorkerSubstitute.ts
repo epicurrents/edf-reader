@@ -1,5 +1,5 @@
 /**
- * EpiCurrents EDF pseudo worker. Allows using the EDF loader in the main thread without actual workers.
+ * EpiCurrents EDF worker substitute. Allows using the EDF loader in the main thread without an actual worker.
  * @package    @epicurrents/edf-file-loader
  * @copyright  2024 Sampsa Lohi
  * @license    Apache-2.0
@@ -9,18 +9,12 @@ import { type BiosignalHeaderRecord, type ConfigChannelFilter } from '@epicurren
 import EdfFileReader from './EdfFileReader'
 import { type EdfHeader } from '../types'
 import { Log } from 'scoped-ts-log'
+import { ServiceWorkerSubstitute } from '@epicurrents/core'
 
-const SCOPE = 'EdfPseudoWorker'
+const SCOPE = 'EdfWorkerSubstitute'
 
-export default class EdfPseudoWorker extends Worker {
-    protected _eventListeners = [] as {
-        event: string,
-        callback: (message: any) => unknown
-    }[]
+export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
     protected _reader = new EdfFileReader()
-    onerror = null
-    onmessage = null as ((message: any) => unknown) | null
-    onmessageerror = null
     postMessage (message: any) {
         if (!message?.data?.action) {
             return
@@ -121,43 +115,7 @@ export default class EdfPseudoWorker extends Worker {
             })
 
         } else {
-            Log.warn(`'${action}' is not implemented in pseudo-worker.`, SCOPE)
-            this.returnMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+            super.postMessage(message)
         }
-    }
-    returnMessage (message: any) {
-        for (const listener of this._eventListeners) {
-            if (listener.event === 'message') {
-                listener.callback(message)
-            }
-        }
-        if (this.onmessage) {
-            this.onmessage(message)
-        }
-    }
-    terminate () {
-        Log.error(`terminate is not implemented in pseudo-worker.`, SCOPE)
-    }
-    addEventListener <K extends keyof WorkerEventMap>(
-        type: K,
-        listener: (this: Worker, ev: WorkerEventMap[K]) => any,
-        options?: boolean | AddEventListenerOptions | undefined
-    ) {
-        Log.error(`addEventListener is not implemented in pseudo-worker.`, SCOPE)
-    }
-    removeEventListener <K extends keyof WorkerEventMap>(
-        type: K,
-        listener: (this: Worker, ev: WorkerEventMap[K]) => any,
-        options?: boolean | EventListenerOptions | undefined
-    ) {
-        Log.error(`removeEventListener is not implemented in pseudo-worker.`, SCOPE)
-    }
-    dispatchEvent (event: Event) {
-        Log.error(`dispatchEvent is not implemented in pseudo-worker.`, SCOPE)
-        return false
     }
 }
