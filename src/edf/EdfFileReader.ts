@@ -5,7 +5,7 @@
  * @license    Apache-2.0
  */
 
-import { BiosignalMutex, SETTINGS, SignalFileLoader } from '@epicurrents/core'
+import { BiosignalCache, BiosignalMutex, SETTINGS, SignalFileLoader } from '@epicurrents/core'
 import {
     combineSignalParts,
     partsNotCached,
@@ -253,7 +253,7 @@ export default class EdfFileReader extends SignalFileLoader {
             Log.error("Cannot load file part, study has not been set up yet.", SCOPE)
             return null
         }
-        if (!this._isMutexReady) {
+        if (this._mutex && !this._isMutexReady) {
             Log.error(`Cannot load file part before signal cache has been initiated.`, SCOPE)
             return null
         }
@@ -368,7 +368,7 @@ export default class EdfFileReader extends SignalFileLoader {
             Log.error("Cannot load signals, signal cache has not been set up yet.", SCOPE)
             return null
         }
-        if (!this._isMutexReady) {
+        if (this._mutex && !this._isMutexReady) {
             Log.error(`Cannot load signals before signal cache has been initiated.`, SCOPE)
             return null
         }
@@ -710,8 +710,8 @@ export default class EdfFileReader extends SignalFileLoader {
     }
 
     setupCache () {
-        Log.error(`setupCache has not been implemented yet.`, SCOPE)
-        return false
+        this._fallbackCache = new BiosignalCache()
+        return this._fallbackCache
     }
 
     /**
@@ -723,7 +723,7 @@ export default class EdfFileReader extends SignalFileLoader {
     }
 
     async setupMutex (buffer: SharedArrayBuffer, bufferStart: number): Promise<MutexExportProperties|null> {
-        if (this._mutex && this._isMutexReady) {
+        if (this._mutex) {
             Log.warn(`Tried to re-initialize already initialized cache.`, SCOPE)
             return this._mutex.propertiesForCoupling
         }

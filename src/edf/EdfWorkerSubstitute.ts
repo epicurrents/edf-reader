@@ -16,21 +16,34 @@ const SCOPE = 'EdfWorkerSubstitute'
 export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
     protected _reader = new EdfFileReader()
     postMessage (message: any) {
-        if (!message?.data?.action) {
+        if (!message?.action) {
             return
         }
-        const action = message.data.action
+        const action = message.action
         Log.debug(`Received message with action ${action}.`, SCOPE)
-        if (action === 'get-signals') {
+        if (action === 'cache-signals-from-url') {
+            try {
+                this._reader.cacheSignalsFromUrl()
+            } catch (e) {
+                Log.error(
+                    `An error occurred while trying to cache signals, operation was aborted.`,
+                SCOPE, e as Error)
+                this.returnMessage({
+                    action: action,
+                    success: false,
+                    rn: message.rn,
+                })
+            }
+        } else if (action === 'get-signals') {
             // Extract job parameters.
             const data = validateCommissionProps(
-                message.data,
+                message,
                 {
                     config: Object,
                     range: [Number, Number],
                 },
                 true,
-                this.returnMessage
+                this.returnMessage.bind(this)
             )
             if (!data) {
                 return
@@ -48,14 +61,14 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                         signals: sigs,
                         annotations: annos,
                         dataGaps: gaps,
-                        range: message.data.range,
-                        rn: message.data.rn,
+                        range: message.range,
+                        rn: message.rn,
                     })
                 } else {
                     this.returnMessage({
                         action: action,
                         success: false,
-                        rn: message.data.rn,
+                        rn: message.rn,
                     })
                 }
             } catch (e) {
@@ -63,19 +76,19 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 this.returnMessage({
                     action: action,
                     success: false,
-                    rn: message.data.rn,
+                    rn: message.rn,
                 })
             }
         } else if (action === 'setup-study') {
             const data = validateCommissionProps(
-                message.data,
+                message,
                 {
                     formatHeader: Object,
                     header: Object,
                     url: String,
                 },
                 true,
-                this.returnMessage
+                this.returnMessage.bind(this)
             )
             if (!data) {
                 return
@@ -87,7 +100,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 this.returnMessage({
                     action: action,
                     success: false,
-                    rn: message.data.rn,
+                    rn: message.rn,
                 })
                 return
             }
@@ -98,13 +111,13 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                         dataLength: this._reader.dataLength,
                         recordingLength: this._reader.totalLength,
                         success: true,
-                        rn: message.data.rn,
+                        rn: message.rn,
                     })
                 } else {
                     this.returnMessage({
                         action: action,
                         success: false,
-                        rn: message.data.rn,
+                        rn: message.rn,
                     })
                 }
             })
