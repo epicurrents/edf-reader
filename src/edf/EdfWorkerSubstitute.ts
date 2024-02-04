@@ -39,8 +39,8 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             const data = validateCommissionProps(
                 message,
                 {
-                    config: Object,
-                    range: [Number, Number],
+                    config: 'Object',
+                    range: ['Number', 'Number'],
                 },
                 true,
                 this.returnMessage.bind(this)
@@ -79,13 +79,21 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                     rn: message.rn,
                 })
             }
+        } else if (action === 'setup-cache') {
+            const cache = this._reader.setupCache()
+            this.returnMessage({
+                action: action,
+                cacheProperties: cache,
+                success: true,
+                rn: message.rn,
+            })
         } else if (action === 'setup-study') {
             const data = validateCommissionProps(
                 message,
                 {
-                    formatHeader: Object,
-                    header: Object,
-                    url: String,
+                    formatHeader: 'Object',
+                    header: 'Object',
+                    url: 'String',
                 },
                 true,
                 this.returnMessage.bind(this)
