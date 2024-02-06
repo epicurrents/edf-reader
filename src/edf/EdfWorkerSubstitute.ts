@@ -15,6 +15,15 @@ const SCOPE = 'EdfWorkerSubstitute'
 
 export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
     protected _reader = new EdfFileReader()
+    constructor () {
+        super()
+        const updateCallback = (update: { [prop: string]: unknown }) => {
+            if (update.action === 'cache-signals') {
+                this.returnMessage(update)
+            }
+        }
+        this._reader.setUpdateCallback(updateCallback)
+    }
     postMessage (message: any) {
         if (!message?.action) {
             return

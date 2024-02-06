@@ -18,6 +18,7 @@ import {
 import EdfFileReader from '../edf/EdfFileReader'
 import { type EdfHeader } from '#types/edf'
 import { Log } from 'scoped-ts-log'
+import { validateCommissionProps } from '@epicurrents/core/dist/util'
 
 const SCOPE = "EdfWorkerSAB"
 
@@ -50,13 +51,20 @@ onmessage = async (message: WorkerMessage) => {
             })
             return
         }
-        // Extract job parameters.
-        const range = message.data.range as number[]
-        const config = message.data.config as ConfigChannelFilter
+        const data = validateCommissionProps(
+            message.data,
+            {
+                config: 'Object',
+                range: ['Number', 'Number'],
+            }
+        )
+        if (!data) {
+            return
+        }
         try {
-            const sigs = await getSignals(range, config)
-            const annos = getAnnotations(range)
-            const gaps = getDataGaps(range)
+            const sigs = await getSignals(data.range, data.config)
+            const annos = getAnnotations(data.range)
+            const gaps = getDataGaps(data.range)
             if (sigs) {
                 postMessage({
                     action: action,
@@ -83,27 +91,18 @@ onmessage = async (message: WorkerMessage) => {
             })
         }
     } else if (action === 'setup-cache') {
-        const buffer = message.data.buffer as SharedArrayBuffer
-        if (!buffer) {
-            Log.error(`Commission is missing a shared array buffer.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+        const data = validateCommissionProps(
+            message.data,
+            {
+                buffer: 'SharedArrayBuffer',
+                range: 'Object',
+            }
+        )
+        if (!data) {
             return
         }
-        const range = message.data.range as { start: number, end: number }
-        if (!range) {
-            Log.error(`Commission is missing a buffer range.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
-            return
-        }
-        const exportProps = await LOADER.setupMutex(buffer, range.start)
+        const exportProps = await LOADER.setupMutex(data.buffer, data.range.start)
+        console.warn(exportProps)
         if (exportProps) {
             // Pass the generated shared buffers back to main thread.
             postMessage({
@@ -127,18 +126,19 @@ onmessage = async (message: WorkerMessage) => {
             rn: message.data.rn,
         })
     } else if (action === 'setup-study') {
-        // Check EDF header.
-        const formatHeader = message.data.formatHeader as EdfHeader | undefined
-        if (!formatHeader) {
-            Log.error(`Commission is missing a format-specific header.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+        const data = validateCommissionProps(
+            message.data,
+            {
+                formatHeader: 'Object',
+                header: 'Object',
+                url: 'String',
+            }
+        )
+        if (!data) {
             return
         }
-        const reserved = formatHeader.reserved as string | undefined
+        // Check EDF header.
+        const reserved = data.formatHeader.reserved as string | undefined
         if (!reserved?.startsWith('EDF')) {
             Log.error(`Format-specific header is not an EDF-compatible format.`, SCOPE)
             postMessage({
@@ -148,27 +148,7 @@ onmessage = async (message: WorkerMessage) => {
             })
             return
         }
-        const header = message.data.header as BiosignalHeaderRecord | undefined
-        if (!header) {
-            Log.error(`Commission is missing a generic biosignal header.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
-            return
-        }
-        const url = message.data.url as string | undefined
-        if (!url) {
-            Log.error(`Commission is missing a source URL.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
-            return
-        }
-        if (await setupStudy(header, formatHeader, url)) {
+        if (await setupStudy(data.header, data.formatHeader, data.url)) {
             postMessage({
                 action: action,
                 dataLength: LOADER.dataLength,
@@ -186,13 +166,23 @@ onmessage = async (message: WorkerMessage) => {
     } else if (action === 'shutdown') {
         await LOADER.releaseCache()
     } else if (action === 'update-settings') {
-        Object.assign(SETTINGS, message.data.settings)
+        const data = validateCommissionProps(
+            message.data,
+            {
+                settings: 'Object',
+            }
+        )
+        if (!data) {
+            return
+        }
+        Object.assign(SETTINGS, data.settings)
     }
 }
 
 const updateCallback = (update: { [prop: string]: unknown }) => {
-    if (update.action === 'cache-signals') {}
-    postMessage(update)
+    if (update.action === 'cache-signals') {
+        postMessage(update)
+    }
 }
 LOADER.setUpdateCallback(updateCallback)
 
