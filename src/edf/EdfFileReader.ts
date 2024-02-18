@@ -63,6 +63,7 @@ export default class EdfFileReader extends SignalFileLoader {
         this._chunkUnitCount = this._dataUnitSize*2 < SETTINGS.app.dataChunkSize
                                 ? Math.floor(SETTINGS.app.dataChunkSize/(this._dataUnitSize)) - 1
                                 : 1
+        this._discontinuous = header.discontinuous
         Log.debug(`Cached EDF info for recording '${header.patientId}'.`, SCOPE)
     }
 
@@ -276,7 +277,8 @@ export default class EdfFileReader extends SignalFileLoader {
         const innerGaps = this._getGapTimeBetween(start, end)
         const fileStart = start - priorGaps
         const fileEnd = end - priorGaps - innerGaps
-        const filePart = await this.loadPartFromFile(fileStart, fileEnd - fileStart)
+        // loadPartFromFile performs its own gap detection.
+        const filePart = await this.loadPartFromFile(start, end - start)
         if (!filePart) {
             Log.error(`File loader couldn't load EDF part between ${fileStart}-${fileEnd}.`, SCOPE)
             return { signals: [], start: start, end: end }
@@ -285,7 +287,7 @@ export default class EdfFileReader extends SignalFileLoader {
         // This block is meant to catch possible errors in EdfDecoder and signal interpolation.
         try {
             // Slice a part of the file to process.
-            const startPos = Math.round((fileStart - filePart.start)*this._dataUnitSize*recordsPerSecond)
+            const startPos = Math.round((start - filePart.start)*this._dataUnitSize*recordsPerSecond)
             const endPos = startPos + Math.round((filePart.length)*this._dataUnitSize*recordsPerSecond)
             if (startPos < 0) {
                 Log.error(`File starting position is smaller than zero (${startPos})!`, SCOPE)
@@ -706,7 +708,7 @@ export default class EdfFileReader extends SignalFileLoader {
             data: signalFilePart,
             length: partLength,
             start: startTime,
-        }
+        } as SignalFilePart
     }
 
     setupCache () {
