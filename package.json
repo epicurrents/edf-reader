@@ -40,7 +40,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/epicurrents/edf-file-loader.git"
+    "url": "git+https://github.com/epicurrents/edf-reader.git"
   },
   "author": "Sampsa Lohi",
   "license": "Apache-2.0",
