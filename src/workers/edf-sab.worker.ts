@@ -4,7 +4,7 @@
  * even on more powerful desktops.
  * Signal data is cached in a shared array buffer, because cloning large amounts of data between the main thread and
  * this web worker can lead to serious memory leaks if the garbage collector cannot keep up.
- * @package    @epicurrents/edf-file-loader
+ * @package    @epicurrents/edf-reader
  * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
  */
@@ -15,14 +15,14 @@ import {
     type ConfigChannelFilter,
     type WorkerMessage,
 } from '@epicurrents/core/dist/types'
-import EdfFileReader from '../edf/EdfFileReader'
+import EdfProcesser from '../edf/EdfProcesser'
 import { type EdfHeader } from '#types/edf'
 import { Log } from 'scoped-ts-log'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 
 const SCOPE = "EdfWorkerSAB"
 
-const LOADER = new EdfFileReader()
+const LOADER = new EdfProcesser()
 
 onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {

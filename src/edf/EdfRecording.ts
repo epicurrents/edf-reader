@@ -1,6 +1,6 @@
 /**
  * EDF recording class to store EDF header information.
- * @package    @epicurrents/edf-file-loader
+ * @package    @epicurrents/edf-reader
  * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
  */

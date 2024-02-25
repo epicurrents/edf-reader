@@ -43,7 +43,7 @@ module.exports = {
         publicPath: ASSET_PATH,
         filename: '[name].js',
         chunkFilename: '[name].js?v=[contenthash]',
-        library: 'EdfFileLoader',
+        library: 'EdfReader',
         libraryTarget: 'umd'
     },
     plugins: [

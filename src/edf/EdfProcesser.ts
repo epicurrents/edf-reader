@@ -1,11 +1,11 @@
 /**
- * EpiCurrents EDF file loader.
- * @package    @epicurrents/edf-file-loader
+ * EpiCurrents EDF processer. This class contains the common methods used both by workerized and direct readers.
+ * @package    @epicurrents/edf-reader
  * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
  */
 
-import { BiosignalCache, BiosignalMutex, SETTINGS, SignalFileLoader } from '@epicurrents/core'
+import { BiosignalCache, BiosignalMutex, SETTINGS, SignalFileReader } from '@epicurrents/core'
 import {
     combineSignalParts,
     partsNotCached,
@@ -19,7 +19,7 @@ import {
     type BiosignalChannel,
     type BiosignalHeaderRecord,
     type ConfigChannelFilter,
-    type LoadDirection,
+    type ReadDirection,
     type SignalCacheProcess,
     SignalFilePart,
 } from '@epicurrents/core/dist/types'
@@ -28,15 +28,15 @@ import IOMutex, { MutexExportProperties } from 'asymmetric-io-mutex'
 import EdfDecoder from './EdfDecoder'
 import { Log } from 'scoped-ts-log'
 
-const SCOPE = 'EdfFileReader'
+const SCOPE = 'EdfProcesser'
 
-const LOAD_DIRECTION_ALTERNATING: LoadDirection = 'alternate'
-const LOAD_DIRECTION_BACKWARD: LoadDirection = 'backward'
-const LOAD_DIRECTION_FORWARD: LoadDirection = 'forward'
+const LOAD_DIRECTION_ALTERNATING: ReadDirection = 'alternate'
+const LOAD_DIRECTION_BACKWARD: ReadDirection = 'backward'
+const LOAD_DIRECTION_FORWARD: ReadDirection = 'forward'
 /** Maximum time to wait for missing signals to me loaded, in milliseconds. */
 const AWAIT_SIGNALS_TIME = 5000
 
-export default class EdfFileReader extends SignalFileLoader {
+export default class EdfProcesser extends SignalFileReader {
 
     protected _channels = [] as BiosignalChannel[]
     protected _decoder = null as EdfDecoder | null

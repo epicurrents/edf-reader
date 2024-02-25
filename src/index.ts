@@ -1,13 +1,13 @@
 import EdfDecoder from './edf/EdfDecoder'
-import EdfFileLoader from './edf/EdfFileLoader'
-import EdfFileReader from './edf/EdfFileReader'
+import EdfProcesser from './edf/EdfProcesser'
+import EdfReader from './edf/EdfReader'
 import EdfRecording from './edf/EdfRecording'
 import EdfWorkerSubstitute from './edf/EdfWorkerSubstitute'
 
 export {
     EdfDecoder,
-    EdfFileLoader,
-    EdfFileReader,
+    EdfProcesser,
+    EdfReader,
     EdfRecording,
     EdfWorkerSubstitute,
 }

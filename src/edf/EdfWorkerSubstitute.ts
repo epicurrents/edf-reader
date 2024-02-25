@@ -1,11 +1,11 @@
 /**
  * EpiCurrents EDF worker substitute. Allows using the EDF loader in the main thread without an actual worker.
- * @package    @epicurrents/edf-file-loader
+ * @package    @epicurrents/edf-reader
  * @copyright  2024 Sampsa Lohi
  * @license    Apache-2.0
  */
 
-import EdfFileReader from './EdfFileReader'
+import EdfProcesser from './EdfProcesser'
 import { ServiceWorkerSubstitute } from '@epicurrents/core'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 import { type ConfigChannelFilter } from '@epicurrents/core/dist/types'
@@ -14,7 +14,7 @@ import { Log } from 'scoped-ts-log'
 const SCOPE = 'EdfWorkerSubstitute'
 
 export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
-    protected _reader = new EdfFileReader()
+    protected _reader = new EdfProcesser()
     constructor () {
         super()
         const updateCallback = (update: { [prop: string]: unknown }) => {
