@@ -4,7 +4,7 @@
  * even on more powerful desktops.
  * Signal data is cached in a shared array buffer, because cloning large amounts of data between the main thread and
  * this web worker can lead to serious memory leaks if the garbage collector cannot keep up.
- * @package    @epicurrents/edf-reader
+ * @package    epicurrents/edf-reader
  * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
  */

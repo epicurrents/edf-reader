@@ -1,6 +1,6 @@
 /**
  * EpiCurrents EDF processer. This class contains the common methods used both by workerized and direct readers.
- * @package    @epicurrents/edf-reader
+ * @package    epicurrents/edf-reader
  * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
  */

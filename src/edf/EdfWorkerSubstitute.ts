@@ -1,6 +1,6 @@
 /**
  * EpiCurrents EDF worker substitute. Allows using the EDF loader in the main thread without an actual worker.
- * @package    @epicurrents/edf-reader
+ * @package    epicurrents/edf-reader
  * @copyright  2024 Sampsa Lohi
  * @license    Apache-2.0
  */
