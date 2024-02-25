@@ -7,7 +7,7 @@ const ASSET_PATH = process.env.ASSET_PATH || '/vendor/edf-reader/'
 module.exports = {
     mode: 'production',
     entry: {
-        'edf-file-loader': { import: path.join(__dirname, 'src', 'index.ts') },
+        'edf-reader': { import: path.join(__dirname, 'src', 'index.ts') },
     },
     module: {
         rules: [
@@ -28,7 +28,7 @@ module.exports = {
     output: {
         path: path.resolve(__dirname, 'umd'),
         publicPath: ASSET_PATH,
-        library: 'EpiCEdfLoader',
+        library: 'EpiCEdfReader',
         libraryTarget: 'umd',
     },
     resolve: {
