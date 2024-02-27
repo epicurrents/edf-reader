@@ -21,7 +21,7 @@ import { Log } from 'scoped-ts-log'
 
 const SCOPE = "EdfWorker"
 
-const LOADER = new EdfProcesser()
+const LOADER = new EdfProcesser(SETTINGS)
 
 onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {

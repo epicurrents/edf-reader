@@ -14,9 +14,13 @@ import { Log } from 'scoped-ts-log'
 const SCOPE = 'EdfWorkerSubstitute'
 
 export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
-    protected _reader = new EdfProcesser()
+    protected _reader: EdfProcesser
     constructor () {
         super()
+        if (!window.__EPICURRENTS_APPS__[0]) {
+            Log.error(`Reference to main application was not found!`, SCOPE)
+        }
+        this._reader = new EdfProcesser(window.__EPICURRENTS_APPS__[0].state.SETTINGS)
         const updateCallback = (update: { [prop: string]: unknown }) => {
             if (update.action === 'cache-signals') {
                 this.returnMessage(update)

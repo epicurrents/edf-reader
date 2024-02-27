@@ -6,7 +6,7 @@
     "module": "esnext",                       /* Specify module code generation: 'none', 'commonjs', 'amd', 'system', 'umd', 'es2015', 'es2020', or 'ESNext'. */
     "lib": [                                  /* Specify library files to be included in the compilation. */
       "es5", "es6", "esnext",
-      "webworker"
+      "dom", "webworker"
     ],
     "allowJs": true,                          /* Allow javascript files to be compiled. */
     // "checkJs": true,                       /* Report errors in .js files. */

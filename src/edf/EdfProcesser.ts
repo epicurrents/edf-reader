@@ -5,7 +5,11 @@
  * @license    Apache-2.0
  */
 
-import { BiosignalCache, BiosignalMutex, SETTINGS, SignalFileReader } from '@epicurrents/core'
+import {
+    BiosignalCache,
+    BiosignalMutex,
+    SignalFileReader,
+} from '@epicurrents/core'
 import {
     combineSignalParts,
     partsNotCached,
@@ -15,16 +19,17 @@ import {
     MB_BYTES,
 } from '@epicurrents/core/dist/util'
 import {
-    SignalCachePart,
+    type AppSettings,
     type BiosignalChannel,
     type BiosignalHeaderRecord,
     type ConfigChannelFilter,
     type ReadDirection,
+    type SignalCachePart,
     type SignalCacheProcess,
-    SignalFilePart,
+    type SignalFilePart,
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader, type EdfSignalPart } from '#types/edf'
-import IOMutex, { MutexExportProperties } from 'asymmetric-io-mutex'
+import IOMutex, { type MutexExportProperties } from 'asymmetric-io-mutex'
 import EdfDecoder from './EdfDecoder'
 import { Log } from 'scoped-ts-log'
 
@@ -44,9 +49,12 @@ export default class EdfProcesser extends SignalFileReader {
     protected _header = null as EdfHeader | null
     /** A method to pass update messages through. */
     protected _updateCallback = null as ((update: { [prop: string]: unknown }) => void) | null
+    /** Settings must be kept up-to-date with the main application. */
+    SETTINGS: AppSettings
 
-    constructor () {
+    constructor (settings: AppSettings) {
         super()
+        this.SETTINGS = settings
     }
 
     /**
@@ -60,8 +68,8 @@ export default class EdfProcesser extends SignalFileReader {
         this._dataUnitDuration = header.dataRecordDuration
         this._dataLength = this._dataUnitCount*this._dataUnitDuration
         this._dataUnitSize = dataRecordSize
-        this._chunkUnitCount = this._dataUnitSize*2 < SETTINGS.app.dataChunkSize
-                                ? Math.floor(SETTINGS.app.dataChunkSize/(this._dataUnitSize)) - 1
+        this._chunkUnitCount = this._dataUnitSize*2 < this.SETTINGS.app.dataChunkSize
+                                ? Math.floor(this.SETTINGS.app.dataChunkSize/(this._dataUnitSize)) - 1
                                 : 1
         this._discontinuous = header.discontinuous
         Log.debug(`Cached EDF info for recording '${header.patientId}'.`, SCOPE)
@@ -83,7 +91,7 @@ export default class EdfProcesser extends SignalFileReader {
         /** The number of data units in the file to be loaded. */
         this._dataUnitCount = Math.floor((file.size - this._dataOffset)/this._dataUnitSize)
         // Signal data is converted from int16 to float32, so it will take double the size of the file itself.
-        if (file.size < SETTINGS.app.maxLoadCacheSize/2 && !startFrom) {
+        if (file.size < this.SETTINGS.app.maxLoadCacheSize/2 && !startFrom) {
             Log.info(`Starting progressive loading of a file of size ${(file.size/MB_BYTES).toFixed(2)} MiB.`, SCOPE)
             // Cache the entire file.
             this._file = {
@@ -124,7 +132,7 @@ export default class EdfProcesser extends SignalFileReader {
         // Get an array of parts that are in the process of being cached.
         const cacheTargets = this._cacheProcesses.map(proc => proc.target)
         // If we're at the start of the recording and can cache it entirely, just do that.
-        if (SETTINGS.app.maxLoadCacheSize >= totalSignalDataSize) {
+        if (this.SETTINGS.app.maxLoadCacheSize >= totalSignalDataSize) {
             Log.debug(`Loading the whole recording to cache.`, SCOPE)
             if (startFrom) {
                 // Not starting from the beginning, load initial part at location.
@@ -564,7 +572,7 @@ export default class EdfProcesser extends SignalFileReader {
             return NUMERIC_ERROR_VALUE
         }
         const dataChunkRecords = Math.max(
-            Math.floor(SETTINGS.app.dataChunkSize/this._dataUnitSize),
+            Math.floor(this.SETTINGS.app.dataChunkSize/this._dataUnitSize),
             1 // Always load at least one record at a time.
         )
         const startRecord = start // this.timeToDataRecordIndex(start)
@@ -808,8 +816,8 @@ export default class EdfProcesser extends SignalFileReader {
         this._dataUnitSize = header.dataRecordSize
         // Construct SharedArrayBuffers and rebuild recording data block structure.
         this._dataBlocks = []
-        const dataBlockLen = Math.max(Math.floor(SETTINGS.app.dataChunkSize/header.dataRecordSize), 1)
-        this._maxDataBlocks = Math.floor(SETTINGS.app.maxLoadCacheSize/(dataBlockLen*header.dataRecordSize))
+        const dataBlockLen = Math.max(Math.floor(this.SETTINGS.app.dataChunkSize/header.dataRecordSize), 1)
+        this._maxDataBlocks = Math.floor(this.SETTINGS.app.maxLoadCacheSize/(dataBlockLen*header.dataRecordSize))
         for (let i=0; i<this._dataUnitCount; i+=dataBlockLen) {
             const endRecord = Math.min(i + dataBlockLen, header.dataRecordCount)
             const startByte = this._dataOffset + i*this._dataUnitSize

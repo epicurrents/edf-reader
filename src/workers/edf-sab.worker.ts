@@ -22,7 +22,7 @@ import { validateCommissionProps } from '@epicurrents/core/dist/util'
 
 const SCOPE = "EdfWorkerSAB"
 
-const LOADER = new EdfProcesser()
+const LOADER = new EdfProcesser(SETTINGS)
 
 onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {
