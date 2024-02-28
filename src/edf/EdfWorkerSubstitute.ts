@@ -17,10 +17,10 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
     protected _reader: EdfProcesser
     constructor () {
         super()
-        if (!window.__EPICURRENTS_APPS__[0]) {
+        if (!window.__EPICURRENTS_RUNTIME__) {
             Log.error(`Reference to main application was not found!`, SCOPE)
         }
-        this._reader = new EdfProcesser(window.__EPICURRENTS_APPS__[0].state.SETTINGS)
+        this._reader = new EdfProcesser(window.__EPICURRENTS_RUNTIME__.SETTINGS)
         const updateCallback = (update: { [prop: string]: unknown }) => {
             if (update.action === 'cache-signals') {
                 this.returnMessage(update)
