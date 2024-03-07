@@ -1,2 +1,2 @@
-EDF file format loader for EpiCurrents
-======================================
+EDF file reader for EpiCurrents
+===============================
