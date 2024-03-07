@@ -55,7 +55,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         }
     }
 
-    async loadFile (source: File | StudyFileContext, config?: ConfigReadUrl) {
+    async readFile (source: File | StudyFileContext, config?: ConfigReadUrl) {
         const file = (source as StudyFileContext).file || source as File
         Log.debug(`Loading EDF from file ${file.webkitRelativePath}.`, SCOPE)
         const studyFile = {
@@ -71,13 +71,13 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         } as StudyContextFile
         try {
             // Load header part from the EDF file into the study.
-            const mainHeader = file.slice(0, 255)
+            const mainHeader = file.slice(0, 256)
             const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
             if (!edfHeader) {
                 Log.error("Could not load EDF headers from given file.", SCOPE)
                 return null
             }
-            const fullHeader = file.slice(256, (edfHeader.signalCount + 1)*256 - 1)
+            const fullHeader = file.slice(256, (edfHeader.signalCount + 1)*256)
             await this.readSignals(await fullHeader.arrayBuffer(), config?.signalReader)
         } catch (e: unknown) {
             Log.error("EDF header parsing error:", SCOPE, e as Error)

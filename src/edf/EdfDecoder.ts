@@ -485,7 +485,7 @@ export default class EdfDecoder implements FileDecoder {
         Log.debug(`EDF header decoding started.`, SCOPE)
         try {
             // 8 ASCII : version of this data format (0).
-            const dataFormat = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset)
+            const dataFormat = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)
             if (dataFormat === null) {
                 throw new Error()
             }
@@ -522,13 +522,13 @@ export default class EdfDecoder implements FileDecoder {
         offset += 80
         try {
             // 8 ASCII : startdate of recording (dd.mm.yy).
-            const recStartDate = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset)?.trim()
+            const recStartDate = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)?.trim()
             if (!recStartDate) {
                 throw Error("Failed to load recording start date from header.")
             }
             offset += 8
             // 8 ASCII : starttime of recording (hh.mm.ss).
-            const recStartTime = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset)?.trim()
+            const recStartTime = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)?.trim()
             if (!recStartTime) {
                 throw Error("Failed to load recording start time from header.")
             }
@@ -557,7 +557,7 @@ export default class EdfDecoder implements FileDecoder {
         }
         try {
             // 8 ASCII : number of bytes in header record.
-            const hdrRecBytes = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset)?.trim()
+            const hdrRecBytes = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)?.trim()
             if (!hdrRecBytes) {
                 throw new Error()
             }
@@ -570,7 +570,7 @@ export default class EdfDecoder implements FileDecoder {
         offset += 8
         try {
             // 44 ASCII : reserved.
-            const reserved = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 44, offset)
+            const reserved = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 44, offset)
             if (reserved === null) {
                 throw new Error()
             }
@@ -604,7 +604,7 @@ export default class EdfDecoder implements FileDecoder {
         offset += 8
         try {
             // 8 ASCII : duration of a data record, in seconds.
-            const dataRecDuration = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 8, offset)?.trim()
+            const dataRecDuration = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)?.trim()
             if (!dataRecDuration) {
                 throw new Error()
             }
@@ -617,7 +617,7 @@ export default class EdfDecoder implements FileDecoder {
         offset += 8
         try {
             // 4 ASCII : number of signals (ns) in data record.
-            const signalCount = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer , 4, offset)?.trim()
+            const signalCount = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 4, offset)?.trim()
             if (signalCount === null || signalCount === undefined) {
                 throw new Error()
             }
