@@ -13,7 +13,7 @@ declare global {
         /**
          * Runtime state manager of the initiated application.
          */
-        __EPICURRENTS_RUNTIME__: import('#types/application').StateManager
+        __EPICURRENTS_RUNTIME__: import('@epicurrents/core/dist/types/application').StateManager
     }
 }
 export {} // Guarantees the global declaration to work.
