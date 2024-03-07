@@ -54,7 +54,7 @@ onmessage = async (message: WorkerMessage) => {
         const data = validateCommissionProps(
             message.data,
             {
-                config: 'Object',
+                config: ['Object', 'undefined'],
                 range: ['Number', 'Number'],
             }
         )
