@@ -720,7 +720,11 @@ export default class EdfProcesser extends SignalFileReader {
     }
 
     setupCache () {
-        this._fallbackCache = new BiosignalCache()
+        if (this._fallbackCache) {
+            Log.warn(`Tried to re-initialize already initialized EDF signal cache.`, SCOPE)
+        } else {
+            this._fallbackCache = new BiosignalCache()
+        }
         return this._fallbackCache
     }
 
@@ -734,7 +738,7 @@ export default class EdfProcesser extends SignalFileReader {
 
     async setupMutex (buffer: SharedArrayBuffer, bufferStart: number): Promise<MutexExportProperties|null> {
         if (this._mutex) {
-            Log.warn(`Tried to re-initialize already initialized cache.`, SCOPE)
+            Log.warn(`Tried to re-initialize already initialized EDF signal cache.`, SCOPE)
             return this._mutex.propertiesForCoupling
         }
         if (!this._header) {
