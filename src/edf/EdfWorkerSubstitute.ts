@@ -8,7 +8,7 @@
 import EdfProcesser from './EdfProcesser'
 import { ServiceWorkerSubstitute } from '@epicurrents/core'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
-import { type ConfigChannelFilter } from '@epicurrents/core/dist/types'
+import { type ConfigChannelFilter, type GetSignalsResponse } from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-ts-log'
 
 const SCOPE = 'EdfWorkerSubstitute'
@@ -28,7 +28,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
         }
         this._reader.setUpdateCallback(updateCallback)
     }
-    postMessage (message: any) {
+    async postMessage (message: any) {
         if (!message?.action) {
             return
         }
@@ -52,7 +52,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             const data = validateCommissionProps(
                 message,
                 {
-                    config: 'Object',
+                    config: ['Object', 'undefined'],
                     range: ['Number', 'Number'],
                 },
                 true,
@@ -64,19 +64,19 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             const range = data.range as number[]
             const config = data.config as ConfigChannelFilter
             try {
-                const sigs = this._reader.getSignals(range, config)
+                const sigs = await this._reader.getSignals(range, config)
                 const annos = this._reader.getAnnotations(range)
                 const gaps = this._reader.getDataGaps(range)
                 if (sigs) {
                     this.returnMessage({
                         action: action,
                         success: true,
-                        signals: sigs,
                         annotations: annos,
                         dataGaps: gaps,
                         range: message.range,
                         rn: message.rn,
-                    })
+                        ...sigs
+                    } as GetSignalsResponse)
                 } else {
                     this.returnMessage({
                         action: action,

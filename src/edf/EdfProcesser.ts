@@ -26,6 +26,7 @@ import {
     type ReadDirection,
     type SignalCachePart,
     type SignalCacheProcess,
+    type SignalDataReader,
     type SignalFilePart,
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader, type EdfSignalPart } from '#types/edf'
@@ -41,7 +42,7 @@ const LOAD_DIRECTION_FORWARD: ReadDirection = 'forward'
 /** Maximum time to wait for missing signals to me loaded, in milliseconds. */
 const AWAIT_SIGNALS_TIME = 5000
 
-export default class EdfProcesser extends SignalFileReader {
+export default class EdfProcesser extends SignalFileReader implements SignalDataReader {
 
     protected _channels = [] as BiosignalChannel[]
     protected _decoder = null as EdfDecoder | null
@@ -55,6 +56,10 @@ export default class EdfProcesser extends SignalFileReader {
     constructor (settings: AppSettings) {
         super()
         this.SETTINGS = settings
+    }
+
+    get channels () {
+        return this._channels
     }
 
     /**
@@ -270,7 +275,7 @@ export default class EdfProcesser extends SignalFileReader {
             Log.error("Cannot load file part, recording data record duration is zero.", SCOPE)
             return null
         }
-        if (start < 0 || start >= this._totalLength) {
+        if (start < 0 || start >= this._totalRecordingLength) {
             Log.error(`Requested signal range ${start} - ${end} was out of recording bounds.`, SCOPE)
             return null
         }
@@ -278,8 +283,8 @@ export default class EdfProcesser extends SignalFileReader {
             Log.error(`Requested signal range ${start} - ${end} was empty or invalid.`, SCOPE)
             return null
         }
-        if (end > this._totalLength) {
-            end = this._totalLength
+        if (end > this._totalRecordingLength) {
+            end = this._totalRecordingLength
         }
         const priorGaps = start > 0 ? this._getGapTimeBetween(0, start) : 0
         const innerGaps = this._getGapTimeBetween(start, end)
@@ -368,11 +373,6 @@ export default class EdfProcesser extends SignalFileReader {
         }
     }
 
-    /**
-     * Get signals for the given part.
-     * @param range - Range in seconds as [start, end].
-     * @param config - Optional configuration.
-     */
     async getSignals (range: number[], config?: ConfigChannelFilter) {
         if (!this._header || !this._cache) {
             Log.error("Cannot load signals, signal cache has not been set up yet.", SCOPE)
@@ -416,7 +416,7 @@ export default class EdfProcesser extends SignalFileReader {
         if (
             (
                 (loadedSignals.start > range[0] && loadedSignals.start > 0) ||
-                (loadedSignals.end < range[1] && loadedSignals.end < this._totalLength)
+                (loadedSignals.end < range[1] && loadedSignals.end < this._totalRecordingLength)
             ) &&
             this._cacheProcesses.length
         ) {
@@ -458,7 +458,11 @@ export default class EdfProcesser extends SignalFileReader {
                 }
             }
         }
-        const responseSigs = []
+        const responseSigs = {
+            start: requestedSigs.start,
+            end: requestedSigs.end,
+            signals: [],
+        } as SignalCachePart
         // Find amount of gap time before and within the range.
         const dataGaps = this.getDataGaps(range)
         const priorGapsTotal = range[0] > 0 ? this._getGapTimeBetween(0, range[0]) : 0
@@ -474,7 +478,10 @@ export default class EdfProcesser extends SignalFileReader {
             ).fill(0.0)
             if (rangeStart === rangeEnd) {
                 // The whole range is just gap space.
-                responseSigs.push(signalForRange)
+                responseSigs.signals.push({
+                    data: signalForRange,
+                    samplingRate: requestedSigs.signals[i].samplingRate,
+                })
                 continue
             }
             const startSignalIndex = Math.round((rangeStart - requestedSigs.start)*requestedSigs.signals[i].samplingRate)
@@ -500,7 +507,10 @@ export default class EdfProcesser extends SignalFileReader {
                     startPos
                 )
             }
-            responseSigs.push(signalForRange)
+            responseSigs.signals.push({
+                data: signalForRange,
+                samplingRate: requestedSigs.signals[i].samplingRate,
+            })
         }
         return responseSigs
     }
@@ -567,7 +577,7 @@ export default class EdfProcesser extends SignalFileReader {
             Log.debug(`Could not load and cache part, recording or cache was not set up.`, SCOPE)
             return NUMERIC_ERROR_VALUE
         }
-        if (start < 0 || start >= this._totalLength) {
+        if (start < 0 || start >= this._totalRecordingLength) {
             Log.debug(`Could not load and cache part, start position was out of range.`, SCOPE)
             return NUMERIC_ERROR_VALUE
         }
@@ -760,7 +770,7 @@ export default class EdfProcesser extends SignalFileReader {
         }
         this._mutex = new BiosignalMutex()
         Log.debug(`Initiating EDF worker cache.`, SCOPE)
-        await this._mutex.initSignalBuffers(cacheProps, this._dataLength, buffer, bufferStart)
+        this._mutex.initSignalBuffers(cacheProps, this._dataLength, buffer, bufferStart)
         Log.debug(`EDF loader cache initiation complete.`, SCOPE)
         // Mutex is fully set up.
         this._isMutexReady = true
@@ -812,10 +822,10 @@ export default class EdfProcesser extends SignalFileReader {
                 // Remove possible added annotations and data gaps.
                 this._annotations.clear()
                 this._dataGaps.clear()
-                this._totalLength = (edfData?.dataGaps.get(0) || 0) + this._header.dataRecordDuration
+                this._totalRecordingLength = (edfData?.dataGaps.get(0) || 0) + this._header.dataRecordDuration
             }
         }
-        this._totalLength = Math.max(this._totalLength, header.dataRecordCount*header.dataRecordDuration)
+        this._totalRecordingLength = Math.max(this._totalRecordingLength, header.dataRecordCount*header.dataRecordDuration)
         this._dataLength = this._header.dataRecordCount*this._header.dataRecordDuration
         this._dataUnitSize = header.dataRecordSize
         // Construct SharedArrayBuffers and rebuild recording data block structure.
