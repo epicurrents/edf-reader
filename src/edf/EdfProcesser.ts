@@ -71,7 +71,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         this._dataOffset = header.headerRecordBytes
         this._dataUnitCount = header.dataRecordCount
         this._dataUnitDuration = header.dataRecordDuration
-        this._dataLength = this._dataUnitCount*this._dataUnitDuration
+        this._totalDataLength = this._dataUnitCount*this._dataUnitDuration
         this._dataUnitSize = dataRecordSize
         this._chunkUnitCount = this._dataUnitSize*2 < this.SETTINGS.app.dataChunkSize
                                 ? Math.floor(this.SETTINGS.app.dataChunkSize/(this._dataUnitSize)) - 1
@@ -101,7 +101,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             // Cache the entire file.
             this._file = {
                 data: file,
-                length: this._dataLength,
+                length: this._totalDataLength,
                 start: 0,
             }
             try {
@@ -146,7 +146,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             }
             const requestedPart = {
                 start: 0,
-                end: this._dataLength,
+                end: this._totalDataLength,
                 signals: []
             } as SignalCachePart
             // Check what if any parts still need to be cached.
@@ -393,7 +393,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             return null
         }
         let requestedSigs: SignalCachePart | null = null
-        if (cacheRange.start > range[0] || cacheRange.end < Math.min(range[1], this._dataLength)) {
+        if (cacheRange.start > range[0] || cacheRange.end < Math.min(range[1], this._totalDataLength)) {
             // Fetch the requested part from signal file.
             try {
                 requestedSigs = await this.getSignalPart(range[0], range[1])
@@ -770,7 +770,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         }
         this._mutex = new BiosignalMutex()
         Log.debug(`Initiating EDF worker cache.`, SCOPE)
-        this._mutex.initSignalBuffers(cacheProps, this._dataLength, buffer, bufferStart)
+        this._mutex.initSignalBuffers(cacheProps, this._totalDataLength, buffer, bufferStart)
         Log.debug(`EDF loader cache initiation complete.`, SCOPE)
         // Mutex is fully set up.
         this._isMutexReady = true
@@ -825,8 +825,10 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                 this._totalRecordingLength = (edfData?.dataGaps.get(0) || 0) + this._header.dataRecordDuration
             }
         }
-        this._totalRecordingLength = Math.max(this._totalRecordingLength, header.dataRecordCount*header.dataRecordDuration)
-        this._dataLength = this._header.dataRecordCount*this._header.dataRecordDuration
+        this._totalRecordingLength = Math.max(
+            this._totalRecordingLength, header.dataRecordCount*header.dataRecordDuration
+        )
+        this._totalDataLength = this._header.dataRecordCount*this._header.dataRecordDuration
         this._dataUnitSize = header.dataRecordSize
         // Construct SharedArrayBuffers and rebuild recording data block structure.
         this._dataBlocks = []
