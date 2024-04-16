@@ -623,7 +623,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                         action: 'cache-signals',
                         annotations: this.getAnnotations([startTime, endTime]),
                         // Data gap information can change as the file is loaded, they must always be reset.
-                        dataGaps: this.getDataGaps(),
+                        dataGaps: this.getDataGaps(undefined, true),
                         range: [updated.start, updated.end],
                         success: true,
                     })

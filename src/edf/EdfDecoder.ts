@@ -376,14 +376,12 @@ export default class EdfDecoder implements FileDecoder {
                 // Process annotation signal differently.
                 if (useHeaders.edfPlus && sigInfo.label.toLowerCase() === 'edf annotations') {
                     const parsed = getAnnotationFields(dataOffset, nBytes, recAnnotations || undefined)
+                    const dataPos = (startRecord + r)*useHeaders.dataRecordDuration
                     // Save possible discontinuity in signal data as data gap.
                     if (useHeaders.discontinuous && parsed.recordStart > expectedRecordStart) {
                         // We must use data time instead of recording time as gap start position because the data record
                         // timestamp cannot always be trusted.
-                        dataGaps.set(
-                            (startRecord + r)*useHeaders.dataRecordDuration,
-                            parsed.recordStart - expectedRecordStart
-                        )
+                        dataGaps.set(dataPos, parsed.recordStart - expectedRecordStart)
                         priorOffset += parsed.recordStart - expectedRecordStart
                     } else if (parsed.recordStart < expectedRecordStart + startCorrection) {
                         Log.warn(
