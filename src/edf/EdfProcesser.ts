@@ -603,7 +603,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             const newSignals = await this.getSignalPart(startTime, endTime)
             if (newSignals?.signals.length && (!process || process.continue)) {
                 if (this._header.discontinuous) {
-                    // Convert start and end time to exclude gaps
+                    // Convert start and end time to exclude gaps.
                     newSignals.start = this._recordingTimeToCacheTime(newSignals.start)
                     newSignals.end = this._recordingTimeToCacheTime(newSignals.end)
                 }

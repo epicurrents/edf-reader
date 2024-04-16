@@ -9,6 +9,7 @@ import {
     BiosignalAnnotation,
     SafeObject,
     SignalCachePart,
+    SignalDataGapMap,
 } from "@epicurrents/core/dist/types"
 
 export type EdfHeader = SafeObject & {
@@ -94,5 +95,5 @@ export type EdfSignalInfo = SafeObject & {
  */
 export interface EdfSignalPart extends SignalCachePart {
     annotations?: BiosignalAnnotation[]
-    dataGaps?: Map<number, number>
+    dataGaps?: SignalDataGapMap
 }

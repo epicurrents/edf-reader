@@ -10,6 +10,7 @@ import {
     type BiosignalAnnotation,
     type BiosignalFilters,
     type BiosignalHeaderSignal,
+    type SignalDataGapMap,
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader } from '../types/edf'
 import EdfDecoder from './EdfDecoder'
@@ -27,7 +28,7 @@ export default class EdfRecording extends GenericBiosignalHeaders {
         rawSignals = [] as Int16Array[][],
         physicalSignals = [] as Float32Array[][],
         annotations = [] as BiosignalAnnotation[],
-        dataGaps = new Map() as Map<number, number>,
+        dataGaps = new Map() as SignalDataGapMap,
         fileType = 'edf'
     ) {
         // Calculate record size

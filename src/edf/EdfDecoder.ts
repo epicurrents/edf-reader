@@ -22,6 +22,7 @@ import {
     type BiosignalAnnotation,
     type BiosignalFilters,
     type FileDecoder,
+    type SignalDataGapMap,
 } from '@epicurrents/core/dist/types'
 import { EdfHeader, EdfSignalInfo } from '#types/edf'
 import * as codecutils from 'codecutils'
@@ -240,10 +241,15 @@ export default class EdfDecoder implements FileDecoder {
         } as BiosignalAnnotation
         // Annotation parsing helper methods.
         type AnnotationFields = {
+            /** Data record start time in seconds. */
             recordStart: number
+            /** Annotations in this data record. */
             fields: {
+                /** Annotation duration on seconds. */
                 duration: number
+                /** Annotation text parts. */
                 entries: string[]
+                /** Annotation start time in seconds. */
                 startTime: number
             }[]
         }
@@ -256,13 +262,13 @@ export default class EdfDecoder implements FileDecoder {
         ): AnnotationFields => {
             const annotations = existing || {
                 recordStart: NUMERIC_ERROR_VALUE,
-                fields: []
+                fields: [],
             }
             const fieldProps = {
                 startTime: NUMERIC_ERROR_VALUE,
                 duration: NUMERIC_ERROR_VALUE,
                 entries: [] as string[],
-            }
+            } as AnnotationFields['fields'][0]
             // Create a view to the underlying buffer.
             const byteArray = codecutils.CodecUtils.extractTypedArray(
                 dataBuffer,
@@ -283,7 +289,7 @@ export default class EdfDecoder implements FileDecoder {
                                             fieldStart
                                           )
                         if (!startTime) {
-                            throw new Error()
+                            throw new Error(`EDF+ data record start time resolved as falsy.`)
                         }
                         fieldProps.startTime = parseFloat(startTime)
                         if (annotations.recordStart === NUMERIC_ERROR_VALUE && byteArray[baIdx+1] === 20) {
@@ -298,7 +304,7 @@ export default class EdfDecoder implements FileDecoder {
                                             fieldStart
                                          )
                         if (!duration) {
-                            throw new Error()
+                            throw new Error(`EDF+ annotation duration resolved as falsy.`)
                         }
                         fieldProps.duration = parseFloat(duration)
                         durationNext = false
@@ -318,7 +324,7 @@ export default class EdfDecoder implements FileDecoder {
                                         fieldStart
                                       )
                     if (!startTime) {
-                        throw new Error()
+                        throw new Error(`EDF+ annotation start time resolved as falsy.`)
                     }
                     fieldProps.startTime = parseFloat(startTime)
                     durationNext = true
@@ -352,7 +358,7 @@ export default class EdfDecoder implements FileDecoder {
             rawSignals[i] = new Array(nDataRecords) as Int16Array[]
             physicalSignals[i] = new Array(nDataRecords) as Float32Array[]
         }
-        const dataGaps = new Map<number, number>()
+        const dataGaps = new Map<number, number>() as SignalDataGapMap
         let startCorrection = 0
         if (dataOffset === undefined) {
             dataOffset = useHeaders.headerRecordBytes
@@ -368,11 +374,16 @@ export default class EdfDecoder implements FileDecoder {
                 const nBytes = nSamples*(SampleType.BYTES_PER_ELEMENT)
                 let isAnnotation = false
                 // Process annotation signal differently.
-                if (useHeaders.edfPlus && sigInfo.label === 'EDF Annotations') {
+                if (useHeaders.edfPlus && sigInfo.label.toLowerCase() === 'edf annotations') {
                     const parsed = getAnnotationFields(dataOffset, nBytes, recAnnotations || undefined)
-                    // Save possible discontinuity in signal data
+                    // Save possible discontinuity in signal data as data gap.
                     if (useHeaders.discontinuous && parsed.recordStart > expectedRecordStart) {
-                        dataGaps.set((startRecord + r)*useHeaders.dataRecordDuration, parsed.recordStart - expectedRecordStart)
+                        // We must use data time instead of recording time as gap start position because the data record
+                        // timestamp cannot always be trusted.
+                        dataGaps.set(
+                            (startRecord + r)*useHeaders.dataRecordDuration,
+                            parsed.recordStart - expectedRecordStart
+                        )
                         priorOffset += parsed.recordStart - expectedRecordStart
                     } else if (parsed.recordStart < expectedRecordStart + startCorrection) {
                         Log.warn(
