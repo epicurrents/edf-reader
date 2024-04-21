@@ -11,7 +11,7 @@
  * @license    Apache-2.0
  */
 
-import { GenericBiosignalHeaders } from '@epicurrents/core'
+import { GenericAsset, GenericBiosignalHeaders } from '@epicurrents/core'
 import {
     concatFloat32Arrays,
     NUMERIC_ERROR_VALUE,
@@ -231,13 +231,14 @@ export default class EdfDecoder implements FileDecoder {
         const annotationProto = {
             annotator: null,
             channels: [],
+            class: 'event',
             duration: 0,
-            id: null,
+            id: GenericAsset.CreateUniqueId(),
             label: '',
             priority: 0,
             start: 0,
             text: '',
-            type: "event"
+            type: null,
         } as BiosignalAnnotation
         // Annotation parsing helper methods.
         type AnnotationFields = {
