@@ -74,7 +74,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             const mainHeader = file.slice(0, 256)
             const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
             if (!edfHeader) {
-                Log.error("Could not load EDF headers from given file.", SCOPE)
+                Log.error("Could not load EDF header from the given file.", SCOPE)
                 return null
             }
             const fullHeader = file.slice(256, (edfHeader.signalCount + 1)*256)
@@ -200,7 +200,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             })
             const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
             if (!edfHeader) {
-                Log.error("Could not load EDF headers from given URL.", SCOPE)
+                Log.error("Could not load EDF header from the given URL.", SCOPE)
                 return null
             }
             // Load full header including signal info.
@@ -210,7 +210,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             })
             await this.readSignals(await fullHeader.arrayBuffer(), config?.signalReader)
         } catch (e: unknown) {
-            Log.error("EDF header parsing error!", SCOPE, e as Error)
+            Log.error("EDF header parsing error:", SCOPE, e as Error)
             return null
         }
         this._study.files.push(studyFile)

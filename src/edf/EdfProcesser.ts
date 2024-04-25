@@ -178,7 +178,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                             sleep(10)
                         ])
                     }
-                    proc.end = nextPart
+                    proc.end = nextPart*this._dataUnitDuration
                 }
             }
         } else {
@@ -586,13 +586,13 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             1 // Always load at least one record at a time.
         )
         const startRecord = start // this.timeToDataRecordIndex(start)
-        const finalRecord = process ? process.target.end
+        const finalRecord = process ? Math.round(process.target.end)/this._dataUnitDuration
                                     : this._header.dataRecordCount
         let nextRecord = Math.min(
             startRecord + dataChunkRecords,
             finalRecord
         )
-        if (nextRecord === startRecord + 1) {
+        if (nextRecord === startRecord) {
             Log.debug(`Loading complete at record index ${nextRecord}.`, SCOPE)
             // End of the line
             return nextRecord
