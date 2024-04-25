@@ -114,17 +114,6 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             if (!data) {
                 return
             }
-            // Check EDF header.
-            const reserved = data.formatHeader.reserved as string | undefined
-            if (!reserved?.startsWith('EDF')) {
-                Log.error(`Format-specific header is not an EDF-compatible format.`, SCOPE)
-                this.returnMessage({
-                    action: action,
-                    success: false,
-                    rn: message.rn,
-                })
-                return
-            }
             this._reader.setupStudy(data.header, data.formatHeader, data.url).then(result => {
                 if (result) {
                     this.returnMessage({

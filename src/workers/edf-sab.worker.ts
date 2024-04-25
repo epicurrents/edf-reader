@@ -137,17 +137,6 @@ onmessage = async (message: WorkerMessage) => {
         if (!data) {
             return
         }
-        // Check EDF header.
-        const reserved = data.formatHeader.reserved as string | undefined
-        if (!reserved?.startsWith('EDF')) {
-            Log.error(`Format-specific header is not an EDF-compatible format.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
-            return
-        }
         if (await setupStudy(data.header, data.formatHeader, data.url)) {
             postMessage({
                 action: action,

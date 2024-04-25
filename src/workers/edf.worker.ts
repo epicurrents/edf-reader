@@ -137,16 +137,6 @@ onmessage = async (message: WorkerMessage) => {
             })
             return
         }
-        const reserved = formatHeader.reserved as string | undefined
-        if (!reserved?.startsWith('EDF')) {
-            Log.error(`Format-specific header is not an EDF-compatible format.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
-            return
-        }
         const header = message.data.header as BiosignalHeaderRecord | undefined
         if (!header) {
             Log.error(`Commission is missing a generic biosignal header.`, SCOPE)
