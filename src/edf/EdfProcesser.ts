@@ -101,7 +101,8 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             // Cache the entire file.
             this._file = {
                 data: file,
-                length: this._totalDataLength,
+                dataLength: this._totalDataLength,
+                length: this._totalRecordingLength,
                 start: 0,
             }
             try {
@@ -142,7 +143,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             if (startFrom) {
                 // Not starting from the beginning, load initial part at location.
                 const startRecord = this._timeToDataUnitIndex(startFrom)
-                await this.loadAndCachePart(startRecord)
+                await this.readAndCachePart(startRecord)
             }
             const requestedPart = {
                 start: 0,
@@ -174,7 +175,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                     // Continue loading records, but don't hog the entire thread.
                     if (proc.continue) {
                         [nextPart] = await Promise.all([
-                            this.loadAndCachePart(nextPart, proc),
+                            this.readAndCachePart(nextPart, proc),
                             sleep(10)
                         ])
                     }
@@ -290,8 +291,10 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         const innerGaps = this._getGapTimeBetween(start, end)
         const fileStart = start - priorGaps
         const fileEnd = end - priorGaps - innerGaps
-        // loadPartFromFile performs its own gap detection.
-        const filePart = await this.loadPartFromFile(start, end - start)
+        // readPartFromFile performs its own gap detection.
+        const filePart = await this.readPartFromFile(start, end - start)
+        console.log(start, end, priorGaps, innerGaps, fileStart, fileEnd)
+        console.log({...filePart})
         if (!filePart) {
             Log.error(`File loader couldn't load EDF part between ${fileStart}-${fileEnd}.`, SCOPE)
             return { signals: [], start: start, end: end }
@@ -301,7 +304,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         try {
             // Slice a part of the file to process.
             const startPos = Math.round((start - filePart.start)*this._dataUnitSize*recordsPerSecond)
-            const endPos = startPos + Math.round((filePart.length)*this._dataUnitSize*recordsPerSecond)
+            const endPos = startPos + Math.round((filePart.dataLength)*this._dataUnitSize*recordsPerSecond)
             if (startPos < 0) {
                 Log.error(`File starting position is smaller than zero (${startPos})!`, SCOPE)
                 throw new Error()
@@ -314,7 +317,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                 Log.warn(
                     `File ending position is greater than the file size (${endPos} > ${filePart.data.size})!`,
                 SCOPE)
-                filePart.length = (filePart.data.size - startPos)/(this._dataUnitSize*recordsPerSecond)
+                filePart.dataLength = (filePart.data.size - startPos)/(this._dataUnitSize*recordsPerSecond)
             }
             const chunk = filePart.data.slice(startPos, Math.min(endPos, filePart.data.size))
             const chunkBuffer = await chunk.arrayBuffer()
@@ -325,7 +328,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                                     chunkBuffer,
                                     0,
                                     (start - priorGaps)*recordsPerSecond,
-                                    filePart.length/this._header.dataRecordDuration,
+                                    filePart.dataLength/this._header.dataRecordDuration,
                                     priorGaps
                                 )
             if (!edfData?.signals) {
@@ -567,12 +570,12 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
     }
 
     /**
-     * Load the next signal part starting from the given record index and cache it.
+     * Read the next signal part starting from the given record index and cache it.
      * @param start - Data record to start from (inclusive).
-     * @param process - Optional cache process to use for information.
-     * @returns Timestamp of next record to load (in seconds) or NUMERIC_ERROR_VALUE if an error occurred.
+     * @param process - Optional cache process to continue with this part.
+     * @returns Index of the next data record to load or NUMERIC_ERROR_VALUE if an error occurred.
      */
-    async loadAndCachePart (start: number, process?: SignalCacheProcess) {
+    async readAndCachePart (start: number, process?: SignalCacheProcess) {
         if (!this._header || !this._cache) {
             Log.debug(`Could not load and cache part, recording or cache was not set up.`, SCOPE)
             return NUMERIC_ERROR_VALUE
@@ -683,7 +686,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         }
     }
 
-    async loadPartFromFile (startFrom: number, dataLength: number): Promise<SignalFilePart> {
+    async readPartFromFile (startFrom: number, dataLength: number) {
         if (!this._url.length) {
             Log.error(`Could not load file part, there is no source URL to load from.`, SCOPE)
             return null
@@ -724,6 +727,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         // Cache only the visible part.
         return {
             data: signalFilePart,
+            dataLength: (unitEnd - unitStart)*this._dataUnitDuration,
             length: partLength,
             start: startTime,
         } as SignalFilePart
@@ -806,7 +810,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         }
         if (this._header.discontinuous) {
             // We need to fetch the true file duration from the last data record.
-            const filePart = await this.loadPartFromFile((this._dataUnitCount - 1)*this._dataUnitDuration, 1)
+            const filePart = await this.readPartFromFile((this._dataUnitCount - 1)*this._dataUnitDuration, 1)
             if (filePart) {
                 const chunkBuffer = await filePart.data.arrayBuffer()
                 // Byte offset is always 0, as we slice the data to start from the correct position.
@@ -816,7 +820,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                                     chunkBuffer,
                                     0,
                                     0,
-                                    filePart.length/this._dataUnitDuration,
+                                    filePart.dataLength/this._dataUnitDuration,
                                     0
                                 )
                 // Remove possible added annotations and data gaps.
