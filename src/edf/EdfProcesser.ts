@@ -293,8 +293,6 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         const fileEnd = end - priorGaps - innerGaps
         // readPartFromFile performs its own gap detection.
         const filePart = await this.readPartFromFile(start, end - start)
-        console.log(start, end, priorGaps, innerGaps, fileStart, fileEnd)
-        console.log({...filePart})
         if (!filePart) {
             Log.error(`File loader couldn't load EDF part between ${fileStart}-${fileEnd}.`, SCOPE)
             return { signals: [], start: start, end: end }
