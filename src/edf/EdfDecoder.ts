@@ -233,7 +233,7 @@ export default class EdfDecoder implements FileDecoder {
             channels: [],
             class: 'event',
             duration: 0,
-            id: GenericAsset.CreateUniqueId(),
+            id: '',
             label: '',
             priority: 0,
             start: 0,
@@ -426,9 +426,10 @@ export default class EdfDecoder implements FileDecoder {
                 for (const anno of recAnnotations.fields) {
                     for (const entry of anno.entries) {
                         annotations.push(Object.assign({}, annotationProto, {
+                            id: GenericAsset.CreateUniqueId(),
                             start: anno.startTime,
                             duration: anno.duration,
-                            label: entry
+                            label: entry,
                         }))
                     }
                 }
