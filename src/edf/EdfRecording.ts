@@ -5,9 +5,9 @@
  * @license    Apache-2.0
  */
 
-import { GenericBiosignalHeaders } from '@epicurrents/core'
+import { GenericBiosignalHeader } from '@epicurrents/core'
 import {
-    type BiosignalAnnotation,
+    type AnnotationTemplate,
     type BiosignalFilters,
     type BiosignalHeaderSignal,
     type SignalDataGapMap,
@@ -18,7 +18,7 @@ import Log from 'scoped-ts-log'
 
 const SCOPE = 'EdfHeader'
 
-export default class EdfRecording extends GenericBiosignalHeaders {
+export default class EdfRecording extends GenericBiosignalHeader {
     private _header: EdfHeader
     private _physicalSignals: Float32Array[][]
     private _rawSignals: Int16Array[][]
@@ -27,7 +27,7 @@ export default class EdfRecording extends GenericBiosignalHeaders {
         header: EdfHeader,
         rawSignals = [] as Int16Array[][],
         physicalSignals = [] as Float32Array[][],
-        annotations = [] as BiosignalAnnotation[],
+        annotations = [] as AnnotationTemplate[],
         dataGaps = new Map() as SignalDataGapMap,
         fileType = 'edf'
     ) {

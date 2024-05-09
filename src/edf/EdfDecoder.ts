@@ -11,7 +11,7 @@
  * @license    Apache-2.0
  */
 
-import { GenericAsset, GenericBiosignalHeaders } from '@epicurrents/core'
+import { GenericAsset, GenericBiosignalHeader } from '@epicurrents/core'
 import {
     concatFloat32Arrays,
     NUMERIC_ERROR_VALUE,
@@ -19,6 +19,7 @@ import {
 } from '@epicurrents/core/dist/util'
 import EdfRecording from './EdfRecording'
 import {
+    type AnnotationTemplate,
     type BiosignalAnnotation,
     type BiosignalFilters,
     type FileDecoder,
@@ -80,7 +81,7 @@ export default class EdfDecoder implements FileDecoder {
      * @returns Biosignal header record.
      */
     public static HeaderToBiosignalHeader (headers: EdfHeader) {
-        const biosigHeaders = new GenericBiosignalHeaders(
+        const biosigHeaders = new GenericBiosignalHeader(
             headers.edfPlus ? 'edf+' : 'edf',
             headers.patientId,
             headers.patientId,
@@ -226,20 +227,19 @@ export default class EdfDecoder implements FileDecoder {
         const rawSignals = new Array(useHeaders.signalCount) as Int16Array[][]
         const physicalSignals = new Array(useHeaders.signalCount) as Float32Array[][]
         const nDataRecords = Math.round(range ? range : useHeaders.dataRecordCount)
-        const annotations = new Array(nDataRecords) as BiosignalAnnotation[]
+        const annotations = new Array(nDataRecords) as AnnotationTemplate[]
         const annotationSignals = [] as number[]
         const annotationProto = {
             annotator: null,
+            background: false,
             channels: [],
             class: 'event',
             duration: 0,
-            id: '',
             label: '',
             priority: 0,
             start: 0,
             text: '',
-            type: null,
-        } as BiosignalAnnotation
+        } as AnnotationTemplate
         // Annotation parsing helper methods.
         type AnnotationFields = {
             /** Data record start time in seconds. */

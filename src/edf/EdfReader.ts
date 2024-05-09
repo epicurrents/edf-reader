@@ -5,7 +5,7 @@
  * @license    Apache-2.0
  */
 
-import { GenericBiosignalHeaders, GenericFileReader } from '@epicurrents/core'
+import { GenericBiosignalHeader, GenericFileReader } from '@epicurrents/core'
 import { safeObjectFrom, secondsToTimeString } from '@epicurrents/core/dist/util'
 import {
     type ConfigReadSignals,
@@ -166,7 +166,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         }
         const meta = this._study.meta as {
             channels: EdfHeaderSignal[]
-            header:  GenericBiosignalHeaders
+            header:  GenericBiosignalHeader
             formatHeader: EdfHeader
         }
         meta.channels = signals

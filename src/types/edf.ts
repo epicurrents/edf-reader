@@ -6,10 +6,10 @@
  */
 
 import {
-    BiosignalAnnotation,
-    SafeObject,
-    SignalCachePart,
-    SignalDataGapMap,
+    type AnnotationTemplate,
+    type SafeObject,
+    type SignalCachePart,
+    type SignalDataGapMap,
 } from "@epicurrents/core/dist/types"
 
 export type EdfHeader = SafeObject & {
@@ -94,6 +94,6 @@ export type EdfSignalInfo = SafeObject & {
  * as the actuals signals, which is why they are parsed at the same time.
  */
 export interface EdfSignalPart extends SignalCachePart {
-    annotations?: BiosignalAnnotation[]
+    annotations?: AnnotationTemplate[]
     dataGaps?: SignalDataGapMap
 }
