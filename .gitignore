@@ -6,3 +6,6 @@ dev/*
 dist/*
 umd/*
 tests/coverage
+
+.DS_Store
+._*
