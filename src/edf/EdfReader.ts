@@ -25,19 +25,14 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
     protected _useSAB: boolean
 
     constructor (useSAB = false) {
-        const fileTypeAssoc = {
+        const fileTypeAssocs = [{
             accept: {
-                "application/edf": ['edf'],
+                "application/edf": ['.edf'],
             },
             description: "European data format (EDF/EDF+)",
-            onlyAccepted: false,
-        }
-        super(SCOPE, [], fileTypeAssoc)
+        }]
+        super(SCOPE, [], fileTypeAssocs)
         this._useSAB = useSAB
-    }
-
-    get fileType () {
-        return 'edf'
     }
 
     getFileTypeWorker (): Worker | null {
