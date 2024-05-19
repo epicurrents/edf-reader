@@ -20,7 +20,6 @@ import {
 import EdfRecording from './EdfRecording'
 import {
     type AnnotationTemplate,
-    type BiosignalAnnotation,
     type BiosignalFilters,
     type FileDecoder,
     type SignalDataGapMap,
