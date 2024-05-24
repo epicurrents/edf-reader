@@ -102,7 +102,6 @@ onmessage = async (message: WorkerMessage) => {
             return
         }
         const exportProps = await LOADER.setupMutex(data.buffer, data.range.start)
-        console.warn(exportProps)
         if (exportProps) {
             // Pass the generated shared buffers back to main thread.
             postMessage({
