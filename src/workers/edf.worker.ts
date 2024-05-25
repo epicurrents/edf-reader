@@ -1,5 +1,5 @@
 /**
- * EpiCurrents EDF recording worker; unloading that work from the main thread since 2021!
+ * Epicurrents EDF recording worker; unloading that work from the main thread since 2021!
  * Seriously though, loading and parsing an EDF file is quite slow and can block the main thread for several seconds,
  * even on more powerful desktops.
  * Signal data is cached in a shared array buffer, because cloning large amounts of data between the main thread and
