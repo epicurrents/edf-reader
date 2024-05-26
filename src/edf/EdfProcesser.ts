@@ -170,8 +170,8 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             this._cacheProcesses.push(...newCacheProcs)
             // Start loading missing parts consecutively.
             for (const proc of newCacheProcs) {
-                let nextPart = proc.start
-                while (nextPart >= 0 && nextPart < proc.target.end) {
+                let nextPart = Math.floor(proc.start/this._dataUnitDuration)
+                while (nextPart >= 0 && nextPart*this._dataUnitDuration < proc.target.end) {
                     // Continue loading records, but don't hog the entire thread.
                     if (proc.continue) {
                         [nextPart] = await Promise.all([
