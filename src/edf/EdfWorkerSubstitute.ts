@@ -9,11 +9,13 @@ import EdfProcesser from './EdfProcesser'
 import { ServiceWorkerSubstitute } from '@epicurrents/core'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 import {
+    type BiosignalHeaderRecord,
     type ConfigChannelFilter,
     type GetSignalsResponse,
     type WorkerMessage,
 } from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-ts-log'
+import { type EdfHeader } from '#types/edf'
 
 const SCOPE = 'EdfWorkerSubstitute'
 
@@ -27,7 +29,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
         this._reader = new EdfProcesser(window.__EPICURRENTS__.RUNTIME.SETTINGS)
         const updateCallback = (update: { [prop: string]: unknown }) => {
             if (update.action === 'cache-signals') {
-                this.returnMessage(update)
+                this.returnMessage(update as WorkerMessage['data'])
             }
         }
         this._reader.setUpdateCallback(updateCallback)
@@ -54,7 +56,10 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
         } else if (action === 'get-signals') {
             // Extract job parameters.
             const data = validateCommissionProps(
-                message,
+                message as WorkerMessage['data'] & {
+                    config?: ConfigChannelFilter
+                    range: number[]
+                },
                 {
                     config: ['Object', 'undefined'],
                     range: ['Number', 'Number'],
@@ -65,22 +70,20 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             if (!data) {
                 return
             }
-            const range = data.range as number[]
-            const config = data.config as ConfigChannelFilter
             try {
-                const sigs = await this._reader.getSignals(range, config)
-                const annos = this._reader.getAnnotations(range)
-                const gaps = this._reader.getDataGaps(range)
+                const sigs = await this._reader.getSignals(data.range, data.config)
+                const annos = this._reader.getAnnotations(data.range)
+                const gaps = this._reader.getDataGaps(data.range)
                 if (sigs) {
                     this.returnMessage({
                         action: action,
                         success: true,
                         annotations: annos,
                         dataGaps: gaps,
-                        range: message.range,
+                        range: data.range,
                         rn: message.rn,
                         ...sigs
-                    } as GetSignalsResponse)
+                    } as WorkerMessage['data'] & GetSignalsResponse)
                 } else {
                     this.returnMessage({
                         action: action,
@@ -106,7 +109,11 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             })
         } else if (action === 'setup-study') {
             const data = validateCommissionProps(
-                message,
+                message as WorkerMessage['data'] & {
+                    formatHeader: EdfHeader
+                    header: BiosignalHeaderRecord
+                    url: string
+                },
                 {
                     formatHeader: 'Object',
                     header: 'Object',

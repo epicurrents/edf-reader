@@ -52,7 +52,10 @@ onmessage = async (message: WorkerMessage) => {
             return
         }
         const data = validateCommissionProps(
-            message.data,
+            message.data as WorkerMessage['data'] & {
+                config?: ConfigChannelFilter
+                range: number[]
+            },
             {
                 config: ['Object', 'undefined'],
                 range: ['Number', 'Number'],
@@ -92,7 +95,10 @@ onmessage = async (message: WorkerMessage) => {
         }
     } else if (action === 'setup-cache') {
         const data = validateCommissionProps(
-            message.data,
+            message.data as WorkerMessage['data'] & {
+                buffer: SharedArrayBuffer
+                range: { start: number }
+            },
             {
                 buffer: 'SharedArrayBuffer',
                 range: 'Object',
@@ -126,7 +132,11 @@ onmessage = async (message: WorkerMessage) => {
         })
     } else if (action === 'setup-study') {
         const data = validateCommissionProps(
-            message.data,
+            message.data as WorkerMessage['data'] & {
+                formatHeader: EdfHeader
+                header: BiosignalHeaderRecord
+                url: string
+            },
             {
                 formatHeader: 'Object',
                 header: 'Object',
