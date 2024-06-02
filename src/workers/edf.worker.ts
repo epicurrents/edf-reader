@@ -180,8 +180,9 @@ onmessage = async (message: WorkerMessage) => {
 }
 
 const updateCallback = (update: { [prop: string]: unknown }) => {
-    if (update.action === 'cache-signals') {}
-    postMessage(update)
+    if (update.action === 'cache-signals') {
+        postMessage(update)
+    }
 }
 LOADER.setUpdateCallback(updateCallback)
 

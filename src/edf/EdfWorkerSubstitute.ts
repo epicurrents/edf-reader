@@ -8,7 +8,11 @@
 import EdfProcesser from './EdfProcesser'
 import { ServiceWorkerSubstitute } from '@epicurrents/core'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
-import { type ConfigChannelFilter, type GetSignalsResponse } from '@epicurrents/core/dist/types'
+import {
+    type ConfigChannelFilter,
+    type GetSignalsResponse,
+    type WorkerMessage,
+} from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-ts-log'
 
 const SCOPE = 'EdfWorkerSubstitute'
@@ -28,7 +32,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
         }
         this._reader.setUpdateCallback(updateCallback)
     }
-    async postMessage (message: any) {
+    async postMessage (message: WorkerMessage['data']) {
         if (!message?.action) {
             return
         }
