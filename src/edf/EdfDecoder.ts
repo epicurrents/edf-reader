@@ -13,7 +13,8 @@
 
 import { GenericAsset, GenericBiosignalHeader } from '@epicurrents/core'
 import {
-    concatFloat32Arrays,
+    concatTypedNumberArrays,
+    floatsAreEqual,
     NUMERIC_ERROR_VALUE,
     safeObjectFrom ,
 } from '@epicurrents/core/dist/util'
@@ -222,12 +223,6 @@ export default class EdfDecoder implements FileDecoder {
         }
         // In case of possible BDF support in the future.
         const SampleType = this._fileType === 'edf' ? Int16Array : Int16Array
-        // The raw signal is the digital signal.
-        const rawSignals = new Array(useHeaders.signalCount) as Int16Array[][]
-        const physicalSignals = new Array(useHeaders.signalCount) as Float32Array[][]
-        const nDataRecords = Math.round(range ? range : useHeaders.dataRecordCount)
-        const annotations = new Array(nDataRecords) as AnnotationTemplate[]
-        const annotationSignals = [] as number[]
         const annotationProto = {
             annotator: null,
             background: false,
@@ -350,6 +345,12 @@ export default class EdfDecoder implements FileDecoder {
             }
             return annotations
         }
+        // The raw signal is the digital signal.
+        const rawSignals = new Array(useHeaders.signalCount) as Int16Array[][]
+        const physicalSignals = new Array(useHeaders.signalCount) as Float32Array[][]
+        const nDataRecords = Math.round(range ? range : useHeaders.dataRecordCount)
+        const annotations = [] as AnnotationTemplate[]
+        const annotationSignals = [] as number[]
         // Allocate elements for signals, marking possible EDF Annotations channels.
         for (let i=0; i<useHeaders.signalCount; i++) {
             if (useHeaders.edfPlus && useHeaders.signalInfo[i].label.toLowerCase() === 'edf annotations') {
@@ -378,12 +379,14 @@ export default class EdfDecoder implements FileDecoder {
                     const parsed = getAnnotationFields(dataOffset, nBytes, recAnnotations || undefined)
                     const dataPos = (startRecord + r)*useHeaders.dataRecordDuration
                     // Save possible discontinuity in signal data as data gap.
-                    if (useHeaders.discontinuous && parsed.recordStart > expectedRecordStart) {
+                    // Avoid floating point precision errors.
+                    const equalToPrecision = floatsAreEqual(parsed.recordStart, expectedRecordStart, 16)
+                    if (useHeaders.discontinuous && parsed.recordStart > expectedRecordStart && !equalToPrecision) {
                         // We must use data time instead of recording time as gap start position because the data record
                         // timestamp cannot always be trusted.
                         dataGaps.set(dataPos, parsed.recordStart - expectedRecordStart)
                         priorOffset += parsed.recordStart - expectedRecordStart
-                    } else if (parsed.recordStart < expectedRecordStart + startCorrection) {
+                    } else if (parsed.recordStart < expectedRecordStart + startCorrection && !equalToPrecision) {
                         Log.warn(
                             `EDF file has duplicate record start annotations, file data may be corrupted ` +
                             `(expected start time ${expectedRecordStart} in data record ${r + startRecord}, ` +
@@ -392,10 +395,13 @@ export default class EdfDecoder implements FileDecoder {
                         // Don't repeat the same warning on all consecutive records.
                         startCorrection = parsed.recordStart - expectedRecordStart
                     }
-                    if (recAnnotations) {
-                        recAnnotations.fields.push(...parsed.fields)
-                    } else {
-                        recAnnotations = parsed
+                    // Store possible text annotations.
+                    if (parsed.fields.length) {
+                        if (recAnnotations) {
+                            recAnnotations.fields.push(...parsed.fields)
+                        } else {
+                            recAnnotations = parsed
+                        }
                     }
                     isAnnotation = true
                 }
@@ -450,7 +456,7 @@ export default class EdfDecoder implements FileDecoder {
             return {
                 annotations: annotations,
                 dataGaps: dataGaps,
-                signals: physicalSignals.map((sigSet) => { return concatFloat32Arrays(...sigSet) }),
+                signals: physicalSignals.map((sigSet) => { return concatTypedNumberArrays(...sigSet) }),
             }
         } else {
             return {

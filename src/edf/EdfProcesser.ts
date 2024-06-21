@@ -336,6 +336,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                     end: end,
                 }
             }
+            // Cache possible new annotations.
             if (edfData.annotations.length) {
                 this.cacheNewAnnotations(...edfData.annotations)
             }
