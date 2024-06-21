@@ -433,7 +433,7 @@ export default class EdfDecoder implements FileDecoder {
                         annotations.push(Object.assign({}, annotationProto, {
                             id: GenericAsset.CreateUniqueId(),
                             start: anno.startTime,
-                            duration: anno.duration,
+                            duration: Math.max(0, anno.duration),
                             label: entry,
                         }))
                     }
