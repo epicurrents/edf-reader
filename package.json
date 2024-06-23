@@ -29,8 +29,7 @@
     "./dist/types": "./dist/types/index.d.ts"
   },
   "imports": {
-    "#root/*": "./dist/*",
-    "#*": "./dist/src/*"
+    "#*": "./dist/*"
   },
   "files": [
     "dist/*",
