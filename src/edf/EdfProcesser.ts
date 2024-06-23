@@ -13,7 +13,6 @@ import {
 import {
     combineSignalParts,
     partsNotCached,
-    isAnnotationSignal,
     NUMERIC_ERROR_VALUE,
     sleep,
     MB_BYTES,
@@ -29,10 +28,11 @@ import {
     type SignalDataReader,
     type SignalFilePart,
 } from '@epicurrents/core/dist/types'
-import { type EdfHeader, type EdfSignalPart } from '#types/edf'
+import { type EdfHeader, type EdfSignalPart } from '#types'
 import IOMutex, { type MutexExportProperties } from 'asymmetric-io-mutex'
 import EdfDecoder from './EdfDecoder'
 import { Log } from 'scoped-ts-log'
+import { isAnnotationSignal } from '#util'
 
 const SCOPE = 'EdfProcesser'
 
@@ -260,10 +260,11 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
      * Load part of raw recording signals.
      * @param start - Start time as seconds.
      * @param end - End time as seconds.
-     * @param unknown - Are the loaded signals unknown, or especially, can they contain uknown gaps. If true, final end time is corrected to contain new gaps.
+     * @param unknownData - Is the signal data unknown, or especially, can it contain uknown gaps. If true, final end time is corrected to contain new gaps (default true).
+     * @param raw - Return raw In16 signals instead of physical signals (default false).
      * @returns Promise with signals and corrected start and end times.
      */
-    async getSignalPart (start: number, end: number, unknown = true) : Promise<EdfSignalPart | null> {
+    async getSignalPart (start: number, end: number, unknownData = true, raw = false) : Promise<EdfSignalPart | null> {
         if (!this._decoder || !this._header || !this._dataUnitSize || !this._dataUnitSize) {
             Log.error("Cannot load file part, study has not been set up yet.", SCOPE)
             return null
@@ -327,7 +328,8 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                                     0,
                                     (start - priorGaps)*recordsPerSecond,
                                     filePart.dataLength/this._header.dataRecordDuration,
-                                    priorGaps
+                                    priorGaps,
+                                    raw
                                 )
             if (!edfData?.signals) {
                 return {
@@ -342,7 +344,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             }
             if (edfData.dataGaps.size) {
                 this.cacheNewDataGaps(edfData.dataGaps)
-                if (unknown) {
+                if (unknownData) {
                     // Include new gaps to end time.
                     let total = 0
                     for (const gap of edfData.dataGaps.values()) {
@@ -358,7 +360,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                 const isAnnotation = isAnnotationSignal(this._header.reserved, this._header.signalInfo[i])
                                      ? true : false
                 cacheSignals.push({
-                    data: isAnnotation ? new Float32Array() : edfData.signals[i],
+                    data: isAnnotation ? new Float32Array() : edfData.signals[i] as Float32Array,
                     samplingRate: isAnnotation ? 0 : sigSr,
                 })
             }
@@ -767,8 +769,8 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         for (const sig of this._header.signalInfo) {
             cacheProps.signals.push({
                 data: new Float32Array(),
-                samplingRate: isAnnotationSignal(this._header.dataFormat, sig) ? 0 // Don't cache annotation data.
-                              : Math.round(sig.sampleCount/this._header.dataRecordDuration)
+                samplingRate: isAnnotationSignal(this._header.reserved, sig) ? 0 // Don't cache annotation data.
+                              : sig.sampleCount/this._header.dataRecordDuration
             })
         }
         this._mutex = new BiosignalMutex()
