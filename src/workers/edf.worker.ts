@@ -16,7 +16,7 @@ import {
     type WorkerMessage,
 } from '@epicurrents/core/dist/types'
 import EdfProcesser from '../edf/EdfProcesser'
-import { type EdfHeader } from '#types/edf'
+import { type EdfHeader } from '#types'
 import { Log } from 'scoped-ts-log'
 
 const SCOPE = "EdfWorker"
