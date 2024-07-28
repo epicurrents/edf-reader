@@ -107,7 +107,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 success: true,
                 rn: message.rn,
             })
-        } else if (action === 'setup-study') {
+        } else if (action === 'setup-worker') {
             const data = validateCommissionProps(
                 message as WorkerMessage['data'] & {
                     formatHeader: EdfHeader

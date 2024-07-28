@@ -28,7 +28,25 @@ onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {
         return
     }
-    const action = message.data.action
+    const { action, rn } = message.data
+    /** Return a success response to the service. */
+    const returnSuccess = (results?: { [key: string]: unknown }) => {
+        postMessage({
+            rn: rn,
+            action: action,
+            success: true,
+            ...results
+        })
+    }
+    /** Return a failure response to the service. */
+    const returnFailure = (error: string | string[]) => {
+        postMessage({
+            rn: rn,
+            action: action,
+            success: false,
+            error: error,
+        })
+    }
     Log.debug(`Received message with action ${action}.`, SCOPE)
     if (action === 'cache-signals-from-url') {
         try {
@@ -43,12 +61,7 @@ onmessage = async (message: WorkerMessage) => {
         // so whenever raw signals are requested and very rarely in other cases. Thus no need to use a lot of
         // time to optimize this method.
         if (!LOADER.cacheReady) {
-            Log.error(`Cannot return signals if signal cache is not yet initialized.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+            returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
             return
         }
         const data = validateCommissionProps(
@@ -69,29 +82,17 @@ onmessage = async (message: WorkerMessage) => {
             const annos = getAnnotations(data.range)
             const gaps = getDataGaps(data.range)
             if (sigs) {
-                postMessage({
-                    action: action,
-                    success: true,
-                    signals: sigs,
+                returnSuccess({
                     annotations: annos,
                     dataGaps: gaps,
                     range: message.data.range,
-                    rn: message.data.rn,
+                    ...sigs
                 })
             } else {
-                postMessage({
-                    action: action,
-                    success: false,
-                    rn: message.data.rn,
-                })
+                returnFailure(`Reader did not return any signals.`)
             }
         } catch (e) {
-            Log.error(`Getting signals failed.`, SCOPE, e as Error)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+            returnFailure(e as string)
         }
     } else if (action === 'setup-cache') {
         const data = validateCommissionProps(
@@ -110,27 +111,16 @@ onmessage = async (message: WorkerMessage) => {
         const exportProps = await LOADER.setupMutex(data.buffer, data.range.start)
         if (exportProps) {
             // Pass the generated shared buffers back to main thread.
-            postMessage({
-                action: action,
+            returnSuccess({
                 cacheProperties: exportProps,
-                success: true,
-                rn: message.data.rn,
             })
         } else {
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+            returnFailure(`Mutex setup failed.`)
         }
     } else if (action === 'release-cache') {
         await LOADER.releaseCache()
-        postMessage({
-            action: action,
-            success: true,
-            rn: message.data.rn,
-        })
-    } else if (action === 'setup-study') {
+        returnSuccess()
+    } else if (action === 'setup-worker') {
         const data = validateCommissionProps(
             message.data as WorkerMessage['data'] & {
                 formatHeader: EdfHeader
@@ -144,22 +134,16 @@ onmessage = async (message: WorkerMessage) => {
             }
         )
         if (!data) {
+            returnFailure(`Validating commission props failed.`)
             return
         }
         if (await setupStudy(data.header, data.formatHeader, data.url)) {
-            postMessage({
-                action: action,
+            returnSuccess({
                 dataLength: LOADER.dataLength,
                 recordingLength: LOADER.totalLength,
-                success: true,
-                rn: message.data.rn,
             })
         } else {
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+            returnFailure(`Setting up study failed.`)
         }
     } else if (action === 'shutdown') {
         await LOADER.releaseCache()
@@ -174,6 +158,7 @@ onmessage = async (message: WorkerMessage) => {
             return
         }
         Object.assign(SETTINGS, data.settings)
+        returnSuccess()
     }
 }
 

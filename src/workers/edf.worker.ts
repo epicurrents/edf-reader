@@ -18,6 +18,7 @@ import {
 import EdfProcesser from '../edf/EdfProcesser'
 import { type EdfHeader } from '#types'
 import { Log } from 'scoped-ts-log'
+import { validateCommissionProps } from '@epicurrents/core/dist/util'
 
 const SCOPE = "EdfWorker"
 
@@ -27,7 +28,25 @@ onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {
         return
     }
-    const action = message.data.action
+    const { action, rn } = message.data
+    /** Return a success response to the service. */
+    const returnSuccess = (results?: { [key: string]: unknown }) => {
+        postMessage({
+            rn: rn,
+            action: action,
+            success: true,
+            ...results
+        })
+    }
+    /** Return a failure response to the service. */
+    const returnFailure = (error: string | string[]) => {
+        postMessage({
+            rn: rn,
+            action: action,
+            success: false,
+            error: error,
+        })
+    }
     Log.debug(`Received message with action ${action}.`, SCOPE)
     if (action === 'cache-signals-from-url') {
         try {
@@ -42,12 +61,7 @@ onmessage = async (message: WorkerMessage) => {
         // so whenever raw signals are requested and very rarely in other cases. Thus no need to use a lot of
         // time to optimize this method.
         if (!LOADER.cacheReady) {
-            Log.error(`Cannot return signals if signal cache is not yet initialized.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+            returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
             return
         }
         // Extract job parameters.
@@ -58,124 +72,58 @@ onmessage = async (message: WorkerMessage) => {
             const annos = getAnnotations(range)
             const gaps = getDataGaps(range)
             if (sigs) {
-                postMessage({
-                    action: action,
-                    success: true,
-                    signals: sigs,
+                returnSuccess({
                     annotations: annos,
                     dataGaps: gaps,
                     range: message.data.range,
-                    rn: message.data.rn,
+                    ...sigs
                 })
             } else {
-                postMessage({
-                    action: action,
-                    success: false,
-                    rn: message.data.rn,
-                })
+                returnFailure(`Reader did not return any signals.`)
             }
         } catch (e) {
-            Log.error(`Getting signals failed.`, SCOPE, e as Error)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+            returnFailure(e as string)
         }
     } else if (action === 'setup-cache') {
-        const buffer = message.data.buffer as SharedArrayBuffer
-        if (!buffer) {
-            Log.error(`Commission is missing a shared array buffer.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
-            return
-        }
-        const range = message.data.range as { start: number, end: number }
-        if (!range) {
-            Log.error(`Commission is missing a buffer range.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
-            return
-        }
         const success = LOADER.setupCache()
         if (success) {
-            // Pass the generated shared buffers back to main thread.
-            postMessage({
-                action: action,
-                success: true,
-                rn: message.data.rn,
-            })
+            returnSuccess()
         } else {
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+            returnFailure(`Setting up signal data cache failed.`)
         }
     } else if (action === 'release-cache') {
         await LOADER.releaseCache()
-        postMessage({
-            action: action,
-            success: true,
-            rn: message.data.rn,
-        })
-    } else if (action === 'setup-study') {
-        // Check EDF header.
-        const formatHeader = message.data.formatHeader as EdfHeader | undefined
-        if (!formatHeader) {
-            Log.error(`Commission is missing a format-specific header.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+        returnSuccess()
+    } else if (action === 'setup-worker') {
+        const data = validateCommissionProps(
+            message.data as WorkerMessage['data'] & {
+                formatHeader: EdfHeader
+                header: BiosignalHeaderRecord
+                url: string
+            },
+            {
+                formatHeader: 'Object',
+                header: 'Object',
+                url: 'String',
+            }
+        )
+        if (!data) {
+            returnFailure(`Validating commission props failed.`)
             return
         }
-        const header = message.data.header as BiosignalHeaderRecord | undefined
-        if (!header) {
-            Log.error(`Commission is missing a generic biosignal header.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
-            return
-        }
-        const url = message.data.url as string | undefined
-        if (!url) {
-            Log.error(`Commission is missing a source URL.`, SCOPE)
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
-            return
-        }
-        if (await setupStudy(header, formatHeader, url)) {
-            postMessage({
-                action: action,
+        if (await setupStudy(data.header, data.formatHeader, data.url)) {
+            returnSuccess({
                 dataLength: LOADER.dataLength,
                 recordingLength: LOADER.totalLength,
-                success: true,
-                rn: message.data.rn,
             })
         } else {
-            postMessage({
-                action: action,
-                success: false,
-                rn: message.data.rn,
-            })
+            returnFailure(`Setting up study failed.`)
         }
     } else if (action === 'shutdown') {
         await LOADER.releaseCache()
     } else if (action === 'update-settings') {
         Object.assign(SETTINGS, message.data.settings)
+        returnSuccess()
     }
 }
 
