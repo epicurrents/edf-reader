@@ -581,7 +581,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             Log.debug(`Could not load and cache part, recording or cache was not set up.`, SCOPE)
             return NUMERIC_ERROR_VALUE
         }
-        if (start < 0 || start >= this._totalRecordingLength) {
+        if (start < 0 || start*this._dataUnitDuration >= this._totalRecordingLength) {
             Log.debug(`Could not load and cache part, start position was out of range.`, SCOPE)
             return NUMERIC_ERROR_VALUE
         }
@@ -590,7 +590,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             1 // Always load at least one record at a time.
         )
         const startRecord = start // this.timeToDataRecordIndex(start)
-        const finalRecord = process ? Math.round(process.target.end)/this._dataUnitDuration
+        const finalRecord = process ? process.target.end/this._dataUnitDuration
                                     : this._header.dataRecordCount
         let nextRecord = Math.min(
             startRecord + dataChunkRecords,
@@ -598,7 +598,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         )
         if (nextRecord === startRecord) {
             Log.debug(`Loading complete at record index ${nextRecord}.`, SCOPE)
-            // End of the line
+            // End of the line.
             return nextRecord
         }
         try {
