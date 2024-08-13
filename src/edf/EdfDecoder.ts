@@ -13,7 +13,6 @@
 
 import { GenericAsset, GenericBiosignalHeader } from '@epicurrents/core'
 import {
-    concatTypedNumberArrays,
     floatsAreEqual,
     NUMERIC_ERROR_VALUE,
     safeObjectFrom ,
@@ -26,7 +25,7 @@ import {
     type SignalDataGapMap,
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader, type EdfSignalInfo } from '#types'
-import * as codecutils from 'codecutils'
+import { unpackArray, unpackString } from 'byte-data'
 import Log from 'scoped-ts-log'
 
 const SCOPE = 'EdfDecoder'
@@ -40,7 +39,7 @@ const SCOPE = 'EdfDecoder'
 * If the output is `null`, then the parser was not able to decode the file.
 */
 export default class EdfDecoder implements FileDecoder {
-    private _fileType = 'edf'
+    private _dataFormat = 'edf'
     private _inputBuffer = null as null | ArrayBuffer
     private _output = null as null | EdfRecording
     /**
@@ -82,7 +81,7 @@ export default class EdfDecoder implements FileDecoder {
      */
     public static HeaderToBiosignalHeader (headers: EdfHeader) {
         const biosigHeaders = new GenericBiosignalHeader(
-            headers.edfPlus ? 'edf+' : 'edf',
+            headers.dataFormat,
             headers.patientId,
             headers.patientId,
             headers.dataRecordCount,
@@ -125,14 +124,17 @@ export default class EdfDecoder implements FileDecoder {
     /**
      * Create a EdfDecoder. If a buffer is provided, it will immediately be set as the input buffer of this decoder.
      * @param buffer - ArrayBuffer to use as input (optional).
-     * @param fileType - File type of the input (optional, assumed EDF).
+     * @param header - Already decoded EDF header (optional).
      */
-    constructor (buffer?: ArrayBuffer, fileType?: string, header?: EdfHeader) {
+    constructor (buffer?: ArrayBuffer, header?: EdfHeader) {
         if (buffer) {
-            this.setInput(buffer, fileType)
+            this.setInput(buffer, header?.dataFormat)
+        }
+        if (header?.dataFormat) {
+            this._dataFormat = header.dataFormat
         }
         if (header) {
-            this._output = new EdfRecording(header)
+            this._output = new EdfRecording(header, undefined, undefined, undefined, undefined, header.dataFormat)
         }
     }
 
@@ -180,7 +182,8 @@ export default class EdfDecoder implements FileDecoder {
     * @param startRecord - Record number at dataOffset (default 0).
     * @param range - Range of records to decode from buffer (optional, but required if a buffer is provided).
     * @param priorOffset - Time offset of the prior data (i.e. total gap time before buffer start, optional, default 0).
-    * @param returnRaw -Return the raw Int16 signals instead of physical signals (default false).
+    * @param returnRaw -Return the raw digital signals instead of physical signals (default false).
+    * @returns An object holding the decoded signals with possible annotations and data gaps, or null if an error occurred.
     */
     decodeData (
         header: EdfHeader | null,
@@ -193,25 +196,33 @@ export default class EdfDecoder implements FileDecoder {
     ) {
         const dataBuffer = buffer || this._inputBuffer
         const useHeaders = header || this._output?.header
-        if (!dataBuffer) {
-            Log.error("Cannot decode EDF data: an input buffer must be specified!", SCOPE)
-            return null
-        }
         if (!useHeaders) {
-            Log.error("Cannot decode EDF data: header has not been decoded yet!", SCOPE)
+            Log.error("Cannot decode EDF/BDF data: header has not been decoded yet!", SCOPE)
+            return null
+        } else if (header) {
+            this._dataFormat = header.dataFormat
+        }
+        let format = this._dataFormat.toUpperCase()
+        if (!dataBuffer) {
+            Log.error(`Cannot decode ${format} data: an input buffer must be specified!`, SCOPE)
             return null
         }
         const nRecs = useHeaders.dataRecordCount
         if (range && range > nRecs) {
-            Log.error("Cannot decode EDF data: given range is out of record bounds!", SCOPE)
+            Log.error(`Cannot decode ${format} data: given range is out of record bounds!`, SCOPE)
             return null
         }
         if (buffer !== undefined && range === undefined) {
-            Log.error("Cannot decode EDF data: range must be specified if buffer is specified!", SCOPE)
+            Log.error(`Cannot decode ${format} data: range must be specified if buffer is specified!`, SCOPE)
             return null
         }
-        // In case of possible BDF support in the future.
-        const SampleType = this._fileType === 'edf' ? Int16Array : Int16Array
+        const sampleType = {
+            bits: this._dataFormat.startsWith('bdf') ? 24 : 16,
+            bytesPerElement: this._dataFormat.startsWith('bdf') ? 3 : 2,
+            signed: true,
+            float: false,
+            be: false,
+        }
         const annotationProto = {
             annotator: null,
             background: false,
@@ -254,66 +265,50 @@ export default class EdfDecoder implements FileDecoder {
                 entries: [] as string[],
             } as AnnotationFields['fields'][0]
             // Create a view to the underlying buffer.
-            const byteArray = codecutils.CodecUtils.extractTypedArray(
-                dataBuffer,
-                startFrom,
-                Uint8Array,
-                recordLen
+            const byteArray = new Uint8Array(
+                dataBuffer.slice(startFrom, startFrom + recordLen)
             )
-            let fieldStart = startFrom
+            let fieldStart = 0
             let durationNext = false
-            for (let i=startFrom; i<startFrom + recordLen; i++) {
-                const baIdx = i - startFrom
-                if (byteArray[baIdx] === 20) {
+            for (let i=0; i<recordLen; i++) {
+                if (byteArray[i] === 20) {
                     // Field end byte.
                     if (fieldProps.startTime === NUMERIC_ERROR_VALUE) {
-                        const startTime = codecutils.CodecUtils.getString8FromBuffer(
-                                            dataBuffer,
-                                            i - fieldStart,
-                                            fieldStart
-                                          )
+                        const startTime = unpackString(byteArray, fieldStart, i)
                         if (!startTime) {
-                            throw new Error(`EDF+ data record start time resolved as falsy.`)
+                            throw new Error(`${format} data record start time resolved as falsy.`)
                         }
                         fieldProps.startTime = parseFloat(startTime)
-                        if (annotations.recordStart === NUMERIC_ERROR_VALUE && byteArray[baIdx+1] === 20) {
+                        if (annotations.recordStart === NUMERIC_ERROR_VALUE && byteArray[i+1] === 20) {
                             annotations.recordStart = fieldProps.startTime
                             // Skip the additional x20 byte.
                             i++
                         }
                     } else if (durationNext) {
-                        const duration = codecutils.CodecUtils.getString8FromBuffer(
-                                            dataBuffer,
-                                            i - fieldStart,
-                                            fieldStart
-                                         )
+                        const duration = unpackString(byteArray, fieldStart, i)
                         if (!duration) {
-                            throw new Error(`EDF+ annotation duration resolved as falsy.`)
+                            throw new Error(`${format} annotation duration resolved as falsy.`)
                         }
                         fieldProps.duration = parseFloat(duration)
                         durationNext = false
                     } else {
                         // Decode annotation text part in UTF-8.
                         fieldProps.entries.push(
-                            annotationDecoder.decode(dataBuffer.slice(fieldStart, i))
+                            annotationDecoder.decode(dataBuffer.slice(startFrom + fieldStart, startFrom + i))
                         )
                     }
-                    fieldStart = i+1
-                } else if (byteArray[baIdx] === 21) {
+                    fieldStart = i + 1
+                } else if (byteArray[i] === 21) {
                     // Duration delimiter byte.
-                    // This delimiter mus follow a start time field.
-                    const startTime = codecutils.CodecUtils.getString8FromBuffer(
-                                        dataBuffer,
-                                        i - fieldStart,
-                                        fieldStart
-                                      )
+                    // This delimiter must follow a start time field.
+                    const startTime = unpackString(byteArray, fieldStart, i)
                     if (!startTime) {
-                        throw new Error(`EDF+ annotation start time resolved as falsy.`)
+                        throw new Error(`${format} annotation start time resolved as falsy.`)
                     }
                     fieldProps.startTime = parseFloat(startTime)
                     durationNext = true
-                    fieldStart = i+1
-                } else if (byteArray[baIdx] === 0) {
+                    fieldStart = i + 1
+                } else if (byteArray[i] === 0) {
                     // End of annotation.
                     if (fieldProps.entries.length) {
                         annotations.fields.push({
@@ -322,31 +317,35 @@ export default class EdfDecoder implements FileDecoder {
                             entries: [...fieldProps.entries],
                         })
                     }
-                    if (byteArray[baIdx+1] === 0) {
+                    if (byteArray[i+1] === 0) {
                         // No more annotations in this record.
                         break
                     }
                     fieldProps.startTime = NUMERIC_ERROR_VALUE
                     fieldProps.duration = 0
                     fieldProps.entries = []
-                    fieldStart = i+1
+                    fieldStart = i + 1
                 }
             }
             return annotations
         }
         // The raw signal is the digital signal.
-        const rawSignals = new Array(useHeaders.signalCount) as Int16Array[][]
-        const physicalSignals = new Array(useHeaders.signalCount) as Float32Array[][]
+        const rawSignals = new Array(useHeaders.signalCount) as Array<number>[][]
+        const physicalSignals = new Array(useHeaders.signalCount) as Array<number>[][]
         const nDataRecords = Math.round(range ? range : useHeaders.dataRecordCount)
         const annotations = [] as AnnotationTemplate[]
         const annotationSignals = [] as number[]
+        const annoSignalLabel = `${this._dataFormat.substring(0, 3)} annotations`
         // Allocate elements for signals, marking possible EDF Annotations channels.
         for (let i=0; i<useHeaders.signalCount; i++) {
-            if (useHeaders.edfPlus && useHeaders.signalInfo[i].label.toLowerCase() === 'edf annotations') {
+            if (
+                useHeaders.isPlus &&
+                useHeaders.signalInfo[i].label.toLowerCase() === annoSignalLabel
+            ) {
                 annotationSignals.push(i)
             }
-            rawSignals[i] = new Array(nDataRecords) as Int16Array[]
-            physicalSignals[i] = new Array(nDataRecords) as Float32Array[]
+            rawSignals[i] = new Array(nDataRecords) as Array<number>[]
+            physicalSignals[i] = new Array(nDataRecords) as Array<number>[]
         }
         const dataGaps = new Map<number, number>() as SignalDataGapMap
         let startCorrection = 0
@@ -361,10 +360,10 @@ export default class EdfDecoder implements FileDecoder {
             for (let i=0; i<useHeaders.signalCount; i++) {
                 const sigInfo = useHeaders.signalInfo[i]
                 const nSamples = sigInfo.sampleCount
-                const nBytes = nSamples*(SampleType.BYTES_PER_ELEMENT)
+                const nBytes = nSamples*(sampleType.bytesPerElement)
                 let isAnnotation = false
                 // Process annotation signal differently.
-                if (useHeaders.edfPlus && sigInfo.label.toLowerCase() === 'edf annotations') {
+                if (annotationSignals.includes(i)) {
                     const parsed = getAnnotationFields(dataOffset, nBytes, recAnnotations || undefined)
                     const dataPos = (startRecord + r)*useHeaders.dataRecordDuration
                     // Save possible discontinuity in signal data as data gap.
@@ -377,7 +376,7 @@ export default class EdfDecoder implements FileDecoder {
                         priorOffset += parsed.recordStart - expectedRecordStart
                     } else if (parsed.recordStart < expectedRecordStart + startCorrection && !equalToPrecision) {
                         Log.warn(
-                            `EDF file has overlapping record starts, file data may be corrupted ` +
+                            `${format} file has overlapping record starts, file data may be corrupted ` +
                             `(expected start time ${expectedRecordStart} in data record ${r + startRecord}, ` +
                             `got ${parsed.recordStart}).`,
                         SCOPE)
@@ -394,15 +393,16 @@ export default class EdfDecoder implements FileDecoder {
                     }
                     isAnnotation = true
                 }
-                const rawSignal = codecutils.CodecUtils.extractTypedArray(
-                    dataBuffer,
+                const byteArray = new Uint8Array(dataBuffer)
+                const rawSignal = unpackArray(
+                    byteArray,
+                    sampleType,
                     dataOffset,
-                    SampleType,
-                    nSamples
-                ) as Int16Array
+                    dataOffset + nBytes
+                )
                 rawSignals[i][r] = rawSignal
                 // Convert digital signal to physical signal.
-                const physicalSignal = new Float32Array(rawSignal.length).fill(0)
+                const physicalSignal = new Array<number>(rawSignal.length).fill(0)
                 if (!isAnnotation) {
                     for (let index=0; index<nSamples; index++) {
                         // https://edfrw.readthedocs.io/en/latest/specifications.html#converting-digital-samples-to-physical-dimensions
@@ -431,7 +431,14 @@ export default class EdfDecoder implements FileDecoder {
         }
         if (!buffer) {
             // Refresh output with actual signal data.
-            this._output = new EdfRecording(useHeaders, rawSignals, physicalSignals, annotations, dataGaps)
+            this._output = new EdfRecording(
+                useHeaders,
+                returnRaw ? rawSignals : [],
+                returnRaw ? [] : physicalSignals,
+                annotations,
+                dataGaps,
+                this._dataFormat
+            )
         } else {
             // Add possible parsed annotations and data gaps.
             if (annotations.length) {
@@ -445,30 +452,28 @@ export default class EdfDecoder implements FileDecoder {
         return {
             annotations: annotations,
             dataGaps: dataGaps,
-            signals: returnRaw ? rawSignals.map((sigSet) => { return concatTypedNumberArrays(...sigSet) })
-                               : physicalSignals.map((sigSet) => { return concatTypedNumberArrays(...sigSet) }),
+            signals: returnRaw ? rawSignals.map((sigSet) => { return sigSet.flat() })
+                               : physicalSignals.map((sigSet) => { return sigSet.flat() }),
         }
     }
 
     /**
     * Decode EDF file header.
     * @param noSignals - Only parse the general part of the header and stop at signal data.
-    * @returns Object { header: EdfHeader, size: header size in bytes (= data offset) }.
+    * @returns EdfHeader ur null, if an error occurred.
     */
     decodeHeader (noSignals = false) {
         if (!this._inputBuffer) {
-            Log.error("Cannot decode EDF header: an input buffer must be specified!", SCOPE)
-            return
+            Log.error("Cannot decode EDF/BDF header: an input buffer must be specified!", SCOPE)
+            return null
         }
-        // In case of possible BDF support in the future.
-        const SampleType = this._fileType === 'edf' ? Int16Array : Int16Array
         const header = {
             dataFormat: '',
             dataRecordCount: 0,
             dataRecordDuration: 0,
             discontinuous: false,
-            edfPlus: false,
             headerRecordBytes: 0,
+            isPlus: false,
             localRecordingId: '',
             patientId: '',
             recordByteSize: 0,
@@ -478,50 +483,63 @@ export default class EdfDecoder implements FileDecoder {
             signalInfo: [] as EdfSignalInfo[],
         } as EdfHeader
         let offset = 0
+        let format = 'EDF'
+        let sampleBytes = 2
         // Attempt to parse each consecutive field from the header.
         // Vital field parsing errors abort the process in addition to logging an error.
         // EDF field values are padded to standard length with empty spaces, so trim the results.
         Log.debug(`EDF header decoding started.`, SCOPE)
+        const byteArray = new Uint8Array(this._inputBuffer)
         try {
             // 8 ASCII : version of this data format (0).
-            const dataFormat = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)
+            const dataFormat = unpackString(byteArray, offset, offset + 8)
             if (dataFormat === null) {
                 throw new Error(`Error when extracting string from buffer.`)
             }
-            header.dataFormat = dataFormat.trim()
-            Log.debug(`Data format is ${header.dataFormat}.`, SCOPE)
+            if (dataFormat.trim() === '0') {
+                this._dataFormat = 'edf'
+                header.dataFormat = 'edf'
+            } else if (byteArray[offset] === 255 && dataFormat.substring(1).trim() === 'BIOSEMI') {
+                this._dataFormat = 'bdf'
+                header.dataFormat = 'bdf'
+                format = 'BDF'
+                sampleBytes = 3
+            } else {
+                throw new Error(`Unsupported data format ${dataFormat.trim()}.`)
+            }
+            Log.debug(`Data format is ${format}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse data format EDF header field!`, SCOPE, e as Error)
-            return
+            Log.error(`Failed to parse data format ${format} header field!`, SCOPE, e as Error)
+            return null
         }
         offset += 8
         try {
             // 80 ASCII : local patient identification.
-            const patientId = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 80, offset)
+            const patientId = unpackString(byteArray, offset, offset + 80)
             if (patientId === null) {
                 throw new Error(`Error when extracting string from buffer.`)
             }
             header.patientId = patientId.trim()
             Log.debug(`Patient ID is ${header.patientId}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse patient ID EDF header field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse patient ID ${format} header field!`, SCOPE, e as Error)
         }
         offset += 80
         try {
             // 80 ASCII : local recording identification.
-            const localRecordingId = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 80, offset)
+            const localRecordingId = unpackString(byteArray, offset, offset + 80)
             if (localRecordingId === null) {
                 throw new Error(`Error when extracting string from buffer.`)
             }
             header.localRecordingId = localRecordingId.trim()
             Log.debug(`Local recording ID is ${header.localRecordingId}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse local recording ID EDF header field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse local recording ID ${format} header field!`, SCOPE, e as Error)
         }
         offset += 80
         try {
             // 8 ASCII : startdate of recording (dd.mm.yy).
-            const recStartDate = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)?.trim()
+            const recStartDate = unpackString(byteArray, offset, offset + 8)?.trim()
             if (recStartDate === undefined) {
                 throw Error(`Error when extracting date string from buffer.`)
             }
@@ -530,7 +548,7 @@ export default class EdfDecoder implements FileDecoder {
             }
             offset += 8
             // 8 ASCII : starttime of recording (hh.mm.ss).
-            const recStartTime = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)?.trim()
+            const recStartTime = unpackString(byteArray, offset, offset + 8)?.trim()
             if (recStartTime === null) {
                 throw Error(`Error when extracting time string from buffer.`)
             }
@@ -557,12 +575,12 @@ export default class EdfDecoder implements FileDecoder {
             )
             Log.debug(`Starting datetime is ${header.recordingDate.toDateString()}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse starting date/time EDF header field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse starting date/time ${format} header field!`, SCOPE, e as Error)
             offset += 16
         }
         try {
             // 8 ASCII : number of bytes in header record.
-            const hdrRecBytes = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)?.trim()
+            const hdrRecBytes = unpackString(byteArray, offset, offset + 8)?.trim()
             if (hdrRecBytes === undefined) {
                 throw Error(`Error when extracting record size string from buffer.`)
             }
@@ -573,33 +591,35 @@ export default class EdfDecoder implements FileDecoder {
             Log.debug(`Header record size is ${header.headerRecordBytes} bytes.`, SCOPE)
         } catch (e: unknown) {
             // Number of bytes can be calculated manually as well.
-            Log.error(`Failed to parse EDF header record size field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse ${format} header record size field!`, SCOPE, e as Error)
         }
         offset += 8
         try {
             // 44 ASCII : reserved.
-            const reserved = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 44, offset)
+            const reserved = unpackString(byteArray, offset, offset + 44)
             if (reserved === null) {
                 throw Error(`Error when extracting reserved string from buffer.`)
             }
             header.reserved = reserved.trim()
-            if (header.reserved.toUpperCase().startsWith('EDF+')) {
-                header.edfPlus = true
+            if (header.reserved.toUpperCase().startsWith(`${format}+`)) {
+                header.isPlus = true
+                header.dataFormat += '+'
+                format += '+'
                 if (header.reserved.toUpperCase().substring(4, 5) === 'D') {
                     header.discontinuous = true
-                    Log.debug(`File is using EDF+ specification, discontinuous record.`, SCOPE)
+                    Log.debug(`File is using ${format} specification, discontinuous record.`, SCOPE)
                 } else {
-                    Log.debug(`File is using EDF+ specification, continuous record.`, SCOPE)
+                    Log.debug(`File is using ${format} specification, continuous record.`, SCOPE)
                 }
             }
         } catch (e: unknown) {
-            Log.error(`Failed to parse reserved EDF header field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse reserved ${format} header field!`, SCOPE, e as Error)
         }
         offset += 44
         try {
             // 8 ASCII : number of data records.
             // Note: Number of records can be -1 during recording, but currently only offline analysis is supported.
-            const dataRecCount = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)?.trim()
+            const dataRecCount = unpackString(byteArray, offset, offset + 8)?.trim()
             if (dataRecCount === undefined) {
                 throw Error(`Error when extracting data record count string from buffer.`)
             }
@@ -612,13 +632,13 @@ export default class EdfDecoder implements FileDecoder {
             }
             Log.debug(`${header.dataRecordCount} data records in file.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse number of data records EDF header field!`, SCOPE, e as Error)
-            return
+            Log.error(`Failed to parse number of data records ${format} header field!`, SCOPE, e as Error)
+            return null
         }
         offset += 8
         try {
             // 8 ASCII : duration of a data record, in seconds.
-            const dataRecDuration = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 8, offset)?.trim()
+            const dataRecDuration = unpackString(byteArray, offset, offset + 8)?.trim()
             if (dataRecDuration === undefined) {
                 throw Error(`Error when extracting data record duration string from buffer.`)
             }
@@ -631,13 +651,13 @@ export default class EdfDecoder implements FileDecoder {
             }
             Log.debug(`Data recordduration is ${header.dataRecordDuration} seconds.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse duration of data record EDF header field!`, SCOPE, e as Error)
-            return
+            Log.error(`Failed to parse duration of data record ${format} header field!`, SCOPE, e as Error)
+            return null
         }
         offset += 8
         try {
             // 4 ASCII : number of signals (ns) in data record.
-            const signalCount = codecutils.CodecUtils.getString8FromBuffer(this._inputBuffer, 4, offset)?.trim()
+            const signalCount = unpackString(byteArray, offset, offset + 4)?.trim()
             if (signalCount === undefined) {
                 throw Error(`Error when extracting signal count string from buffer.`)
             }
@@ -651,14 +671,14 @@ export default class EdfDecoder implements FileDecoder {
                 Log.debug(`${header.signalCount} signals in file.`, SCOPE)
             }
         } catch (e: unknown) {
-            Log.error(`Failed to parse number of signals EDF header field!`, SCOPE, e as Error)
-            return
+            Log.error(`Failed to parse number of signals ${format} header field!`, SCOPE, e as Error)
+            return null
         }
         offset += 4
         // Stop here if signals are not needed.
         if (noSignals) {
             // Generate an "empty" output object from the header information.
-            this._output = new EdfRecording(header, [], [])
+            this._output = new EdfRecording(header, [], [], undefined, undefined, this._dataFormat)
             return header
         }
         /** Parse signal info fields. */
@@ -669,17 +689,17 @@ export default class EdfDecoder implements FileDecoder {
             const allFields = []
             for (let i=0; i<header.signalCount; i++) {
                 try {
-                    const nextField = codecutils.CodecUtils.getString8FromBuffer(
-                                        this._inputBuffer,
-                                        sectionBytes,
-                                        offset
+                    const nextField = unpackString(
+                                        byteArray,
+                                        offset,
+                                        offset + sectionBytes,
                                       )?.trim()
                     if (nextField === undefined) {
                         throw Error(`Error when extracting field string from buffer.`)
                     }
                     allFields.push(nextField)
                 } catch (e: unknown) {
-                    Log.error(`Failed to parse signal info at index ${i} from EDF header!`, SCOPE, e as Error)
+                    Log.error(`Failed to parse signal info at index ${i} from ${format} header!`, SCOPE, e as Error)
                     return []
                 }
                 offset += sectionBytes
@@ -732,7 +752,7 @@ export default class EdfDecoder implements FileDecoder {
                 transducerType: signalInfoArrays.transducerType[i],
                 unitsPerBit: unitsPerBit,
             }) as EdfSignalInfo)
-            header.recordByteSize += (header.signalInfo[i].sampleCount || 0)*SampleType.BYTES_PER_ELEMENT
+            header.recordByteSize += (header.signalInfo[i].sampleCount || 0)*sampleBytes
             Log.debug([
                     `Signal [${i}]:`,
                     `Label: ${signalInfoArrays.label[i]},`,
@@ -747,20 +767,20 @@ export default class EdfDecoder implements FileDecoder {
             SCOPE)
         }
         // Generate an "empty" output object from the header information.
-        this._output = new EdfRecording(header)
+        this._output = new EdfRecording(header, undefined, undefined, undefined, undefined, this._dataFormat)
         return header
     }
 
     /**
     * Set the buffer (most likey from a file) that contains some EDF data.
     * @param buffer - Buffer from the EDF file.
-    * @param fileType - Buffer file type (assumed EDF, placeholder for possible BDF support in the future).
+    * @param dataFormat - Buffer file type (assumed EDF, placeholder for possible BDF support in the future).
     */
-    setInput (buffer: ArrayBuffer, fileType?: string) {
+    setInput (buffer: ArrayBuffer, dataFormat?: string) {
         this._output = null
         this._inputBuffer = buffer
-        if (fileType) {
-            this._fileType = fileType
+        if (dataFormat) {
+            this._dataFormat = dataFormat
         }
     }
 }

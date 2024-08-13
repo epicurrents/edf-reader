@@ -353,14 +353,14 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                     end += total - innerGaps // Total minus already known gaps.
                 }
             }
+            // Construct a cache object to return the signal data in.
             const cacheSignals = [] as SignalCachePart["signals"]
-            // Interpolate physical signals if needed (raw signals are kept as they are).
             for (let i=0; i<edfData.signals.length; i++) {
                 const sigSr = this._header.signalInfo[i].sampleCount*recordsPerSecond
                 const isAnnotation = isAnnotationSignal(this._header.reserved, this._header.signalInfo[i])
                                      ? true : false
                 cacheSignals.push({
-                    data: isAnnotation ? new Float32Array() : edfData.signals[i] as Float32Array,
+                    data: isAnnotation ? new Float32Array() : new Float32Array(edfData.signals[i]),
                     samplingRate: isAnnotation ? 0 : sigSr,
                 })
             }
@@ -798,7 +798,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             SCOPE)
             return false
         }
-        this._decoder = new EdfDecoder(undefined, undefined, edfHeader)
+        this._decoder = new EdfDecoder(undefined, edfHeader)
         // Store the header for later use.
         this._header = edfHeader
         // Initialize file loader.

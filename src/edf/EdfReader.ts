@@ -25,12 +25,14 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
     protected _useSAB: boolean
 
     constructor (useSAB = false) {
-        const fileTypeAssocs = [{
-            accept: {
-                "application/edf": ['.edf'],
+        const fileTypeAssocs = [
+            {
+                accept: {
+                    "application/octet-stream": ['.edf', '.bdf'],
+                },
+                description: "European data format EDF/BDF",
             },
-            description: "European data format (EDF/EDF+)",
-        }]
+        ]
         super(SCOPE, [], fileTypeAssocs)
         this._useSAB = useSAB
     }
@@ -59,10 +61,12 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
 
     async readFile (source: File | StudyFileContext, config?: ConfigReadUrl) {
         const file = (source as StudyFileContext).file || source as File
-        Log.debug(`Loading EDF from file ${file.webkitRelativePath}.`, SCOPE)
+        const fileType = file.name.endsWith('.bdf') ? 'bdf' : 'edf'
+        const fileDesig = fileType.toUpperCase()
+        Log.debug(`Loading ${fileType} from file ${file.webkitRelativePath}.`, SCOPE)
         const studyFile = {
             file: file,
-            format: 'edf',
+            format: fileType,
             mime: config?.mime || file.type || null,
             name: config?.name || file.name || '',
             partial: false,
@@ -76,13 +80,13 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             const mainHeader = file.slice(0, 256)
             const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
             if (!edfHeader) {
-                Log.error("Could not load EDF header from the given file.", SCOPE)
+                Log.error(`Could not load ${fileDesig} header from the given file.`, SCOPE)
                 return null
             }
             const fullHeader = file.slice(256, (edfHeader.signalCount + 1)*256)
             await this.readSignals(await fullHeader.arrayBuffer(), config?.signalReader)
         } catch (e: unknown) {
-            Log.error("EDF header parsing error:", SCOPE, e as Error)
+            Log.error(`${fileDesig} header parsing error:`, SCOPE, e as Error)
             return null
         }
         this._study.files.push(studyFile)
@@ -94,10 +98,10 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         this._decoder.decodeHeader(true)
         const edfRecording = this._decoder.output
         const recType = edfRecording.isEdfPlus && edfRecording.isDiscontinuous
-                        ? `EDF+ (discontinuous) file header parsed:`
+                        ? `EDF/BDF+ (discontinuous) file header parsed:`
                         : edfRecording.isEdfPlus
-                        ? `EDF+ (continuous) file header parsed:`
-                        : `EDF file header parsed:`
+                        ? `EDF/BDF+ (continuous) file header parsed:`
+                        : `EDF/BDF file header parsed:`
         Log.debug([
                 recType,
                 `${edfRecording.signalCount} signals,`,
@@ -181,10 +185,12 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
 
     async readUrl (source: string | StudyFileContext, config?: ConfigReadUrl) {
         const url = (source as StudyFileContext).url || source as string
-        Log.debug(`Loading EDF from url ${url}.`, SCOPE)
+        const fileType = config?.name?.endsWith('.bdf') || url.endsWith('.bdf') ? 'bdf' : 'edf'
+        const fileDesig = fileType.toUpperCase()
+        Log.debug(`Loading ${fileDesig} from url ${url}.`, SCOPE)
         const studyFile = {
             file: null,
-            format: 'edf',
+            format: fileType,
             mime: config?.mime || null,
             name: config?.name || '',
             partial: false,
@@ -202,7 +208,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             })
             const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
             if (!edfHeader) {
-                Log.error("Could not load EDF header from the given URL.", SCOPE)
+                Log.error(`Could not load ${fileDesig} header from the given URL.`, SCOPE)
                 return null
             }
             // Load full header including signal info.
@@ -212,7 +218,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             })
             await this.readSignals(await fullHeader.arrayBuffer(), config?.signalReader)
         } catch (e: unknown) {
-            Log.error("EDF header parsing error:", SCOPE, e as Error)
+            Log.error(`${fileDesig} header parsing error:`, SCOPE, e as Error)
             return null
         }
         this._study.files.push(studyFile)

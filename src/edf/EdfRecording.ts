@@ -20,25 +20,24 @@ const SCOPE = 'EdfHeader'
 
 export default class EdfRecording extends GenericBiosignalHeader {
     private _header: EdfHeader
-    private _physicalSignals: Float32Array[][]
-    private _rawSignals: Int16Array[][]
+    private _physicalSignals = [] as Float32Array[][]
+    private _rawSignals: Array<number>[][]
 
     constructor (
         header: EdfHeader,
-        rawSignals = [] as Int16Array[][],
-        physicalSignals = [] as Float32Array[][],
+        rawSignals = [] as Array<number>[][],
+        physicalSignals = [] as Array<number>[][],
         annotations = [] as AnnotationTemplate[],
         dataGaps = new Map() as SignalDataGapMap,
         fileType = 'edf'
     ) {
-        // Calculate record size
-        // In case of possible BDF support in the future
-        const SampleType = fileType === 'edf' ? Int16Array : Int16Array
+        // Calculate record size.
+        const bytesPerSample = 2
         let maxSr = 0
         let dataRecordSize = 0
         const signalProps = [] as BiosignalHeaderSignal[]
         for (const sig of header.signalInfo) {
-            dataRecordSize += sig.sampleCount*SampleType.BYTES_PER_ELEMENT
+            dataRecordSize += sig.sampleCount*bytesPerSample
             const sigSr = sig.sampleCount/header.dataRecordDuration
             if (sigSr > maxSr) {
                 maxSr = sigSr
@@ -56,13 +55,19 @@ export default class EdfRecording extends GenericBiosignalHeader {
             } as BiosignalHeaderSignal)
         }
         super(
-            header.edfPlus ? 'edf+' : 'edf', header.localRecordingId, header.patientId,
+            header.isPlus ? `${fileType}+` : fileType, header.localRecordingId, header.patientId,
             header.dataRecordCount, header.dataRecordDuration, dataRecordSize,
             header.signalCount, signalProps, header.recordingDate,
             header.discontinuous, annotations, dataGaps
         )
         this._header = header
-        this._physicalSignals = physicalSignals
+        for (const sigSet of physicalSignals) {
+            const records = [] as Float32Array[]
+            for (const recSet of sigSet) {
+                records.push(new Float32Array(recSet))
+            }
+            this._physicalSignals.push(records)
+        }
         this._rawSignals = rawSignals
     }
 
@@ -82,7 +87,7 @@ export default class EdfRecording extends GenericBiosignalHeader {
      * Whether this recording uses the EDF+ specification.
      */
     get isEdfPlus () {
-        return this._header.edfPlus
+        return this._header.isPlus
     }
     /**
      * Size of the header record in bytes.
@@ -194,7 +199,7 @@ export default class EdfRecording extends GenericBiosignalHeader {
     * @param record - Index of the record.
     * @returnthe The digital signal in Int16, null if signal or record index out of range.
     */
-    getRawSignal (index: number, record: number): Int16Array | null {
+    getRawSignal (index: number, record: number): number[] | null {
         if (index < 0 || index >= this._header.signalInfo.length) {
             Log.warn(`Signal index ${index} is out of range, cannot return raw signal.`, SCOPE)
             return null

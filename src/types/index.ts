@@ -20,9 +20,9 @@ export type EdfHeader = SafeObject & {
     dataRecordDuration: number
     /** Is the source signal discontinous. */
     discontinuous: boolean
-    edfPlus: boolean
     /** How many bytes are occupied by the header record at the beginning of the file. */
     headerRecordBytes: number
+    isPlus: boolean
     localRecordingId: string
     patientId: string
     /** Number of bytes per data record. */
@@ -58,6 +58,11 @@ export type EdfHeaderSignal = SafeObject & {
     filter: string
     transducer: string
 }
+
+/**
+ * Types of recordings that can be encoded with the EdfEncoder.
+ */
+export type EdfRecordingType = "eeg"
 
 /**
  * Properties as they are recorded in the EDF header.
@@ -96,6 +101,25 @@ export type EdfSignalInfo = SafeObject & {
 export interface EdfSignalPart extends SignalCachePart {
     annotations?: AnnotationTemplate[]
     dataGaps?: SignalDataGapMap
+}
+
+/**
+ * Basic properties of a signal needed to encode it into EDF.
+ */
+export type EdfSignalProperties = {
+    /** Actual signal data as Float32Array. */
+    data: Float32Array
+    /** Signal offset from baseline in units. */
+    offsetFromBaseline: number
+    /** Signal samples per second. */
+    samplingRate: number
+    /** Physical unit of the signal. */
+    unit: string
+    /**
+     * How many uVs should a single digit (bit) of Int16 represent.
+     * This is the minimum resolution of the signal that is decoded from the EDF recording.
+     */
+    uVperInt16: number
 }
 
 export interface FileFormatEncoder {
