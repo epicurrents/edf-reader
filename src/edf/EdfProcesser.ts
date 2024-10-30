@@ -673,7 +673,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                 // A data unit can overflow the available cache size, so check we haven't reached cache end.
                 const cacheEnd = await this._cache.outputRangeEnd
                 if (cacheEnd !== null && updated.end === cacheEnd) {
-                    nextRecord = 0
+                    nextRecord = -1
                 }
             }
             // Remove possible process as completed.
