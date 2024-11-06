@@ -14,7 +14,7 @@ import {
     type GetSignalsResponse,
     type WorkerMessage,
 } from '@epicurrents/core/dist/types'
-import { Log } from 'scoped-ts-log'
+import { Log } from 'scoped-event-log'
 import { type EdfHeader } from '#types'
 
 const SCOPE = 'EdfWorkerSubstitute'

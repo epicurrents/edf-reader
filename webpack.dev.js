@@ -67,6 +67,7 @@ module.exports = {
         alias: {
             '#root': path.resolve(__dirname, './'),
             '#types': path.resolve(__dirname, 'src', 'types'),
+            '#util': path.resolve(__dirname, 'src', 'util'),
         },
         symlinks: false
     },

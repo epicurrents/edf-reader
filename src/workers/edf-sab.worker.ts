@@ -17,7 +17,7 @@ import {
 } from '@epicurrents/core/dist/types'
 import EdfProcesser from '../edf/EdfProcesser'
 import { type EdfHeader } from '#types'
-import { Log } from 'scoped-ts-log'
+import { Log } from 'scoped-event-log'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 
 const SCOPE = "EdfWorkerSAB"

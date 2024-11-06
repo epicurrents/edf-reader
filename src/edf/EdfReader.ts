@@ -16,7 +16,7 @@ import {
 } from '@epicurrents/core/dist/types'
 import EdfDecoder from './EdfDecoder'
 import { type EdfHeader, type EdfHeaderSignal } from '#types'
-import Log from 'scoped-ts-log'
+import Log from 'scoped-event-log'
 
 const SCOPE = 'EdfReader'
 
