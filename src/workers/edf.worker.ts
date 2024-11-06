@@ -85,7 +85,9 @@ onmessage = async (message: WorkerMessage) => {
             returnFailure(e as string)
         }
     } else if (action === 'setup-cache') {
-        const success = LOADER.setupCache()
+        // Duration is not a mandatory property.
+        const duration = (message.data.dataDuration as number) || 0
+        const success = LOADER.setupCache(duration)
         if (success) {
             returnSuccess()
         } else {

@@ -672,7 +672,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                 }
                 // A data unit can overflow the available cache size, so check we haven't reached cache end.
                 const cacheEnd = await this._cache.outputRangeEnd
-                if (cacheEnd !== null && updated.end === cacheEnd) {
+                if (cacheEnd && updated.end === cacheEnd) {
                     nextRecord = -1
                 }
             }
@@ -739,11 +739,11 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         } as SignalFilePart
     }
 
-    setupCache () {
+    setupCache (dataDuration = 0) {
         if (this._fallbackCache) {
             Log.warn(`Tried to re-initialize already initialized EDF signal cache.`, SCOPE)
         } else {
-            this._fallbackCache = new BiosignalCache()
+            this._fallbackCache = new BiosignalCache(dataDuration)
         }
         return this._fallbackCache
     }

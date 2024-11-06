@@ -100,7 +100,9 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 })
             }
         } else if (action === 'setup-cache') {
-            const cache = this._reader.setupCache()
+            // Duration is not a mandatory property.
+            const duration = (message.dataDuration as number) || 0
+            const cache = this._reader.setupCache(duration)
             this.returnMessage({
                 action: action,
                 cacheProperties: cache,
