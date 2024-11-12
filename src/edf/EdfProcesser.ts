@@ -807,7 +807,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         // Store the header for later use.
         this._header = edfHeader
         // Initialize file loader.
-        this.cacheEdfInfo(edfHeader, header.dataRecordSize)
+        this.cacheEdfInfo(edfHeader, header.dataUnitSize)
         this._url = url
         // Reset possible running cache processes.
         for (let i=0; i<this._cacheProcesses.length; i++) {
@@ -836,16 +836,16 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             }
         }
         this._totalRecordingLength = Math.max(
-            this._totalRecordingLength, header.dataRecordCount*header.dataRecordDuration
+            this._totalRecordingLength, header.dataUnitCount*header.dataUnitDuration
         )
         this._totalDataLength = this._header.dataRecordCount*this._header.dataRecordDuration
-        this._dataUnitSize = header.dataRecordSize
+        this._dataUnitSize = header.dataUnitSize
         // Construct SharedArrayBuffers and rebuild recording data block structure.
         this._dataBlocks = []
-        const dataBlockLen = Math.max(Math.floor(this.SETTINGS.app.dataChunkSize/header.dataRecordSize), 1)
-        this._maxDataBlocks = Math.floor(this.SETTINGS.app.maxLoadCacheSize/(dataBlockLen*header.dataRecordSize))
+        const dataBlockLen = Math.max(Math.floor(this.SETTINGS.app.dataChunkSize/header.dataUnitSize), 1)
+        this._maxDataBlocks = Math.floor(this.SETTINGS.app.maxLoadCacheSize/(dataBlockLen*header.dataUnitSize))
         for (let i=0; i<this._dataUnitCount; i+=dataBlockLen) {
-            const endRecord = Math.min(i + dataBlockLen, header.dataRecordCount)
+            const endRecord = Math.min(i + dataBlockLen, header.dataUnitCount)
             const startByte = this._dataOffset + i*this._dataUnitSize
             const endByte = this._dataOffset + endRecord*this._dataUnitSize
             this._dataBlocks.push({
