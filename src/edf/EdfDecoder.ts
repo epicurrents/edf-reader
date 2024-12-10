@@ -188,7 +188,7 @@ export default class EdfDecoder implements FileDecoder {
     decodeData (
         header: EdfHeader | null,
         buffer?: ArrayBuffer,
-        dataOffset?: number,
+        dataOffset = -1,
         startRecord = 0,
         range?: number,
         priorOffset = 0,
@@ -349,7 +349,7 @@ export default class EdfDecoder implements FileDecoder {
         }
         const dataGaps = new Map<number, number>() as SignalDataGapMap
         let startCorrection = 0
-        if (dataOffset === undefined) {
+        if (dataOffset === -1) {
             dataOffset = useHeaders.headerRecordBytes
         }
         // The raw data is a list of records containing a chunk of each signal.

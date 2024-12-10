@@ -12,7 +12,7 @@ import {
     type BiosignalHeaderSignal,
     type SignalDataGapMap,
 } from '@epicurrents/core/dist/types'
-import { type EdfHeader } from '@epicurrents/edf-reader/src/types/index'
+import { type EdfHeader } from '#types'
 import EdfDecoder from './EdfDecoder'
 import Log from 'scoped-event-log'
 
