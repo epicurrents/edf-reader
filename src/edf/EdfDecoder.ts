@@ -117,6 +117,7 @@ export default class EdfDecoder implements FileDecoder {
         const filterLp = prefiltering.match(/LP:([0-9\\.]+)Hz/i)
         const filterNotch = prefiltering.match(/N:([0-9\\.]+)Hz/i)
         return {
+            bandreject: [],
             highpass: filterHp ? parseFloat(filterHp[1]) : 0,
             lowpass: filterLp ? parseFloat(filterLp[1]) : 0,
             notch: filterNotch ? parseFloat(filterNotch[1]) : 0,

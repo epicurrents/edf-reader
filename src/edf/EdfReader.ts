@@ -72,7 +72,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             partial: false,
             range: [],
             role: 'data',
-            type: EdfReader.CONTEXTS.BIOSIGNAL,
+            modality: 'signal',
             url: config?.url || URL.createObjectURL(file),
         } as StudyContextFile
         try {
@@ -180,7 +180,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         meta.formatHeader = fullHeader.header
         // Always overwrite study format and type with EDF/biosignal.
         this._study.format = 'edf'
-        this._study.context = EdfReader.CONTEXTS.BIOSIGNAL
+        this._study.modality = 'signal'
     }
 
     async readUrl (source: string | StudyFileContext, config?: ConfigReadUrl) {
@@ -196,7 +196,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             partial: false,
             range: [],
             role: 'data',
-            type: EdfReader.CONTEXTS.BIOSIGNAL,
+            modality: 'signal',
             url: config?.url || url,
         } as StudyContextFile
         try {
