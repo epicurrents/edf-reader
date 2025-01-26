@@ -26,18 +26,19 @@ import {
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader, type EdfSignalInfo } from '#types'
 import { unpackArray, unpackString } from 'byte-data'
-import Log from 'scoped-ts-log'
+import Log from 'scoped-event-log'
 
 const SCOPE = 'EdfDecoder'
 /**
-* An instance of EdfDecoder is used to decode an EDF file (or rather a buffer extracted from a EDF file).
-
-* To specify the input, use the method `setInput(buffer: ArrayBuffer)`. Decoding is started with the method `decode()`.
-
-* Decoded result can be accessed via the property `output`.
-
-* If the output is `null`, then the parser was not able to decode the file.
-*/
+ * EdfDecoder is used to decode an European/Biosemi Data Format file (or rather a buffer extracted from a said file).
+ * It supports both the original (EDF/BDF) and the extended specification (EDF+/BDF+).
+ *
+ * To specify the input, use the method `setInput(buffer: ArrayBuffer)`. Decoding is started with the method `decode()`.
+ *
+ * Decoded result can be accessed via the property `output`.
+ *
+ * If the output is `null`, the parser was not able to decode the file.
+ */
 export default class EdfDecoder implements FileDecoder {
     private _dataFormat = 'edf'
     private _inputBuffer = null as null | ArrayBuffer
@@ -116,13 +117,14 @@ export default class EdfDecoder implements FileDecoder {
         const filterLp = prefiltering.match(/LP:([0-9\\.]+)Hz/i)
         const filterNotch = prefiltering.match(/N:([0-9\\.]+)Hz/i)
         return {
+            bandreject: [],
             highpass: filterHp ? parseFloat(filterHp[1]) : 0,
             lowpass: filterLp ? parseFloat(filterLp[1]) : 0,
             notch: filterNotch ? parseFloat(filterNotch[1]) : 0,
         }
     }
     /**
-     * Create a EdfDecoder. If a buffer is provided, it will immediately be set as the input buffer of this decoder.
+     * Create an EdfDecoder. If a buffer is provided, it will immediately be set as the input buffer for this decoder.
      * @param buffer - ArrayBuffer to use as input (optional).
      * @param header - Already decoded EDF header (optional).
      */
@@ -139,8 +141,8 @@ export default class EdfDecoder implements FileDecoder {
     }
 
     /**
-    * The output as an object. The output contains the the header (Object), the raw (digital) signal as a Int16Array
-    * and the physical (scaled) signal as a Float32Array.
+    * The output as an object. The output contains the the header (Object) and either the raw (digital) signal as an
+    * Int16Array or the physical (scaled) signal as a Float32Array.
     * @returns The output.
     */
     get output () {
@@ -175,7 +177,7 @@ export default class EdfDecoder implements FileDecoder {
     }
 
     /**
-    * Decode EDF file data. Can only be called after the header is decoded or a header object provided.
+    * Decode EDF file data. Can only be called after the header is decoded or a header object is provided.
     * @param header - EDF header to use instead of stored header.
     * @param buffer - Buffer to use instead of stored buffer data (optional).
     * @param dataOffset - Byte size of the header or byte index of the record to start from (default is headerRecordSize from header).
@@ -188,7 +190,7 @@ export default class EdfDecoder implements FileDecoder {
     decodeData (
         header: EdfHeader | null,
         buffer?: ArrayBuffer,
-        dataOffset?: number,
+        dataOffset = -1,
         startRecord = 0,
         range?: number,
         priorOffset = 0,
@@ -349,7 +351,7 @@ export default class EdfDecoder implements FileDecoder {
         }
         const dataGaps = new Map<number, number>() as SignalDataGapMap
         let startCorrection = 0
-        if (dataOffset === undefined) {
+        if (dataOffset === -1) {
             dataOffset = useHeaders.headerRecordBytes
         }
         // The raw data is a list of records containing a chunk of each signal.

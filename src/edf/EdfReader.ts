@@ -16,7 +16,7 @@ import {
 } from '@epicurrents/core/dist/types'
 import EdfDecoder from './EdfDecoder'
 import { type EdfHeader, type EdfHeaderSignal } from '#types'
-import Log from 'scoped-ts-log'
+import Log from 'scoped-event-log'
 
 const SCOPE = 'EdfReader'
 
@@ -72,7 +72,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             partial: false,
             range: [],
             role: 'data',
-            type: EdfReader.SCOPES.BIOSIGNAL,
+            modality: 'signal',
             url: config?.url || URL.createObjectURL(file),
         } as StudyContextFile
         try {
@@ -105,8 +105,8 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         Log.debug([
                 recType,
                 `${edfRecording.signalCount} signals,`,
-                `${edfRecording.dataRecordCount} records,`,
-                `${edfRecording.dataRecordDuration} seconds/record,`,
+                `${edfRecording.dataUnitCount} records,`,
+                `${edfRecording.dataUnitDuration} seconds/record,`,
                 `${secondsToTimeString(edfRecording.totalDuration)} duration.`,
             ], SCOPE
         )
@@ -119,8 +119,8 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
                     patientId: meta.patientId || edfRecording.patientId || '',
                     recordId: meta.recordId || edfRecording.recordingId || null,
                     startDate: meta.startDate || edfRecording.recordingStartTime || null,
-                    nDataRecords: edfRecording.dataRecordCount || null,
-                    recordLen: edfRecording.dataRecordDuration || null,
+                    nDataRecords: edfRecording.dataUnitCount || null,
+                    recordLen: edfRecording.dataUnitDuration || null,
                     signalCount: edfRecording.signalCount || 0,
                 }
             )
@@ -128,8 +128,8 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             meta.header.patientId = meta.patientId || edfRecording.patientId || ''
             meta.header.recordId = meta.recordId || edfRecording.recordingId || null
             meta.header.startDate = meta.startDate || edfRecording.recordingStartTime || null
-            meta.header.nDataRecords = edfRecording.dataRecordCount || null
-            meta.header.recordLen = edfRecording.dataRecordDuration || null
+            meta.header.nDataRecords = edfRecording.dataUnitCount || null
+            meta.header.recordLen = edfRecording.dataUnitDuration || null
             meta.header.signalCount = edfRecording.signalCount || 0
         }
         return meta.header
@@ -140,7 +140,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         this._decoder.decodeHeader()
         const fullHeader = this._decoder.output
         // We should not have loaded large files with decoder, so cache the whole signal data.
-        const totalRecords = fullHeader.dataRecordCount
+        const totalRecords = fullHeader.dataUnitCount
         const signals = []
         for (let i=0; i<fullHeader.signalCount; i++) {
             const sigType = config?.signals ? config.signals[i]?.type : 'sig'
@@ -180,7 +180,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         meta.formatHeader = fullHeader.header
         // Always overwrite study format and type with EDF/biosignal.
         this._study.format = 'edf'
-        this._study.scope = EdfReader.SCOPES.BIOSIGNAL
+        this._study.modality = 'signal'
     }
 
     async readUrl (source: string | StudyFileContext, config?: ConfigReadUrl) {
@@ -196,7 +196,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             partial: false,
             range: [],
             role: 'data',
-            type: EdfReader.SCOPES.BIOSIGNAL,
+            modality: 'signal',
             url: config?.url || url,
         } as StudyContextFile
         try {

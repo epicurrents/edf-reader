@@ -17,7 +17,7 @@ import {
 } from '@epicurrents/core/dist/types'
 import EdfProcesser from '../edf/EdfProcesser'
 import { type EdfHeader } from '#types'
-import { Log } from 'scoped-ts-log'
+import { Log } from 'scoped-event-log'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 
 const SCOPE = "EdfWorker"
@@ -85,7 +85,9 @@ onmessage = async (message: WorkerMessage) => {
             returnFailure(e as string)
         }
     } else if (action === 'setup-cache') {
-        const success = LOADER.setupCache()
+        // Duration is not a mandatory property.
+        const duration = (message.data.dataDuration as number) || 0
+        const success = LOADER.setupCache(duration)
         if (success) {
             returnSuccess()
         } else {

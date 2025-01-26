@@ -31,7 +31,7 @@ import {
 import { type EdfHeader, type EdfSignalPart } from '#types'
 import IOMutex, { type MutexExportProperties } from 'asymmetric-io-mutex'
 import EdfDecoder from './EdfDecoder'
-import { Log } from 'scoped-ts-log'
+import { Log } from 'scoped-event-log'
 import { isAnnotationSignal } from '#util'
 
 const SCOPE = 'EdfProcesser'
@@ -638,17 +638,17 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                         this._awaitData.resolve()
                     }
                 }
-                // Now, there's a chance the signal cache already contained a part of the signal,
-                // so adjust next record accordingly.
+                // Now, there's a chance the signal cache already contained a part of the signal, so adjust next record
+                // accordingly.
                 if (
                     !process || process.direction === LOAD_DIRECTION_FORWARD ||
-                    // Either first load or loaded preceding part last, now load the following part.
+                    // Either first load or loaded preceding part previously, now load the following part.
                     (process.direction === LOAD_DIRECTION_ALTERNATING && process.start >= start)
                 ) {
                     nextRecord = this._timeToDataUnitIndex(updated.end)
                 } else if (
                     process.direction === LOAD_DIRECTION_BACKWARD ||
-                    // We loaded a following record previously, so load a preceding record next.
+                    // We loaded a following part previously, so load a preceding part next.
                     (process.direction === LOAD_DIRECTION_ALTERNATING && process.start < start)
                 ) {
                     if (start === 0) {
@@ -669,6 +669,11 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                         SCOPE)
                         return NUMERIC_ERROR_VALUE
                     }
+                }
+                // A data unit can overflow the available cache size, so check we haven't reached cache end.
+                const cacheEnd = await this._cache.outputRangeEnd
+                if (cacheEnd && updated.end === cacheEnd) {
+                    nextRecord = -1
                 }
             }
             // Remove possible process as completed.
@@ -734,11 +739,11 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         } as SignalFilePart
     }
 
-    setupCache () {
+    setupCache (dataDuration = 0) {
         if (this._fallbackCache) {
             Log.warn(`Tried to re-initialize already initialized EDF signal cache.`, SCOPE)
         } else {
-            this._fallbackCache = new BiosignalCache()
+            this._fallbackCache = new BiosignalCache(dataDuration)
         }
         return this._fallbackCache
     }
@@ -802,7 +807,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         // Store the header for later use.
         this._header = edfHeader
         // Initialize file loader.
-        this.cacheEdfInfo(edfHeader, header.dataRecordSize)
+        this.cacheEdfInfo(edfHeader, header.dataUnitSize)
         this._url = url
         // Reset possible running cache processes.
         for (let i=0; i<this._cacheProcesses.length; i++) {
@@ -831,16 +836,16 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             }
         }
         this._totalRecordingLength = Math.max(
-            this._totalRecordingLength, header.dataRecordCount*header.dataRecordDuration
+            this._totalRecordingLength, header.dataUnitCount*header.dataUnitDuration
         )
         this._totalDataLength = this._header.dataRecordCount*this._header.dataRecordDuration
-        this._dataUnitSize = header.dataRecordSize
+        this._dataUnitSize = header.dataUnitSize
         // Construct SharedArrayBuffers and rebuild recording data block structure.
         this._dataBlocks = []
-        const dataBlockLen = Math.max(Math.floor(this.SETTINGS.app.dataChunkSize/header.dataRecordSize), 1)
-        this._maxDataBlocks = Math.floor(this.SETTINGS.app.maxLoadCacheSize/(dataBlockLen*header.dataRecordSize))
+        const dataBlockLen = Math.max(Math.floor(this.SETTINGS.app.dataChunkSize/header.dataUnitSize), 1)
+        this._maxDataBlocks = Math.floor(this.SETTINGS.app.maxLoadCacheSize/(dataBlockLen*header.dataUnitSize))
         for (let i=0; i<this._dataUnitCount; i+=dataBlockLen) {
-            const endRecord = Math.min(i + dataBlockLen, header.dataRecordCount)
+            const endRecord = Math.min(i + dataBlockLen, header.dataUnitCount)
             const startByte = this._dataOffset + i*this._dataUnitSize
             const endByte = this._dataOffset + endRecord*this._dataUnitSize
             this._dataBlocks.push({
