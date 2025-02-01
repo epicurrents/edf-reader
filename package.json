@@ -16,7 +16,8 @@
     "prepack": "npm run build",
     "release": "npm publish --access=public",
     "test": "npm run test:unit",
-    "test:unit": "jest --coverage --verbose --no-cache --runInBand"
+    "test:unit": "jest --coverage --verbose --no-cache --runInBand",
+    "update:core": "cd node_modules/@epicurrents/core && git pull && npm i && npm run build:tsc"
   },
   "exports": {
     ".": {
