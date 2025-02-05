@@ -42,12 +42,18 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
         Log.debug(`Received message with action ${action}.`, SCOPE)
         if (action === 'cache-signals-from-url') {
             try {
-                this._reader.cacheSignalsFromUrl()
+                const success = await this._reader.cacheSignalsFromUrl()
+                return this.returnMessage({
+                    action: action,
+                    complete: success,
+                    success: true,
+                    rn: message.rn,
+                })
             } catch (e) {
                 Log.error(
                     `An error occurred while trying to cache signals, operation was aborted.`,
                 SCOPE, e as Error)
-                this.returnMessage({
+                return this.returnMessage({
                     action: action,
                     success: false,
                     rn: message.rn,
@@ -75,7 +81,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 const annos = this._reader.getAnnotations(data.range)
                 const gaps = this._reader.getDataGaps(data.range)
                 if (sigs) {
-                    this.returnMessage({
+                    return this.returnMessage({
                         action: action,
                         success: true,
                         annotations: annos,
@@ -85,7 +91,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                         ...sigs
                     } as WorkerMessage['data'] & GetSignalsResponse)
                 } else {
-                    this.returnMessage({
+                    return this.returnMessage({
                         action: action,
                         success: false,
                         rn: message.rn,
@@ -93,7 +99,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 }
             } catch (e) {
                 Log.error(`Getting signals failed.`, SCOPE, e as Error)
-                this.returnMessage({
+                return this.returnMessage({
                     action: action,
                     success: false,
                     rn: message.rn,
@@ -103,7 +109,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             // Duration is not a mandatory property.
             const duration = (message.dataDuration as number) || 0
             const cache = this._reader.setupCache(duration)
-            this.returnMessage({
+            return this.returnMessage({
                 action: action,
                 cacheProperties: cache,
                 success: true,
@@ -129,7 +135,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             }
             this._reader.setupStudy(data.header, data.formatHeader, data.url).then(result => {
                 if (result) {
-                    this.returnMessage({
+                    return this.returnMessage({
                         action: action,
                         dataLength: this._reader.dataLength,
                         recordingLength: this._reader.totalLength,
@@ -137,7 +143,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                         rn: message.rn,
                     })
                 } else {
-                    this.returnMessage({
+                    return this.returnMessage({
                         action: action,
                         success: false,
                         rn: message.rn,

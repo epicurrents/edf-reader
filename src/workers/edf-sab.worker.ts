@@ -50,7 +50,8 @@ onmessage = async (message: WorkerMessage) => {
     Log.debug(`Received message with action ${action}.`, SCOPE)
     if (action === 'cache-signals-from-url') {
         try {
-            cacheSignalsFromUrl()
+            const success = await cacheSignalsFromUrl()
+            return returnSuccess({ complete: success })
         } catch (e) {
             Log.error(
                 `An error occurred while trying to cache signals, operation was aborted.`,
@@ -61,8 +62,7 @@ onmessage = async (message: WorkerMessage) => {
         // so whenever raw signals are requested and very rarely in other cases. Thus no need to use a lot of
         // time to optimize this method.
         if (!LOADER.cacheReady) {
-            returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
-            return
+            return returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
         }
         const data = validateCommissionProps(
             message.data as WorkerMessage['data'] & {
@@ -82,17 +82,17 @@ onmessage = async (message: WorkerMessage) => {
             const annos = getAnnotations(data.range)
             const gaps = getDataGaps(data.range)
             if (sigs) {
-                returnSuccess({
+                return returnSuccess({
                     annotations: annos,
                     dataGaps: gaps,
                     range: message.data.range,
                     ...sigs
                 })
             } else {
-                returnFailure(`Reader did not return any signals.`)
+                return returnFailure(`Reader did not return any signals.`)
             }
         } catch (e) {
-            returnFailure(e as string)
+            return returnFailure(e as string)
         }
     } else if (action === 'setup-cache') {
         const data = validateCommissionProps(
@@ -111,15 +111,15 @@ onmessage = async (message: WorkerMessage) => {
         const exportProps = await LOADER.setupMutex(data.buffer, data.range.start)
         if (exportProps) {
             // Pass the generated shared buffers back to main thread.
-            returnSuccess({
+            return returnSuccess({
                 cacheProperties: exportProps,
             })
         } else {
-            returnFailure(`Mutex setup failed.`)
+            return returnFailure(`Mutex setup failed.`)
         }
     } else if (action === 'release-cache') {
         await LOADER.releaseCache()
-        returnSuccess()
+        return returnSuccess()
     } else if (action === 'setup-worker') {
         const data = validateCommissionProps(
             message.data as WorkerMessage['data'] & {
@@ -134,16 +134,15 @@ onmessage = async (message: WorkerMessage) => {
             }
         )
         if (!data) {
-            returnFailure(`Validating commission props failed.`)
-            return
+            return returnFailure(`Validating commission props failed.`)
         }
         if (await setupStudy(data.header, data.formatHeader, data.url)) {
-            returnSuccess({
+            return returnSuccess({
                 dataLength: LOADER.dataLength,
                 recordingLength: LOADER.totalLength,
             })
         } else {
-            returnFailure(`Setting up study failed.`)
+            return returnFailure(`Setting up study failed.`)
         }
     } else if (action === 'shutdown') {
         await LOADER.releaseCache()
@@ -158,7 +157,7 @@ onmessage = async (message: WorkerMessage) => {
             return
         }
         Object.assign(SETTINGS, data.settings)
-        returnSuccess()
+        return returnSuccess()
     }
 }
 

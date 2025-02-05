@@ -50,7 +50,8 @@ onmessage = async (message: WorkerMessage) => {
     Log.debug(`Received message with action ${action}.`, SCOPE)
     if (action === 'cache-signals-from-url') {
         try {
-            cacheSignalsFromUrl()
+            const success = await cacheSignalsFromUrl()
+            return returnSuccess({ complete: success })
         } catch (e) {
             Log.error(
                 `An error occurred while trying to cache signals, operation was aborted.`,
@@ -61,8 +62,7 @@ onmessage = async (message: WorkerMessage) => {
         // so whenever raw signals are requested and very rarely in other cases. Thus no need to use a lot of
         // time to optimize this method.
         if (!LOADER.cacheReady) {
-            returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
-            return
+            return returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
         }
         // Extract job parameters.
         const range = message.data.range as number[]
@@ -72,30 +72,30 @@ onmessage = async (message: WorkerMessage) => {
             const annos = getAnnotations(range)
             const gaps = getDataGaps(range)
             if (sigs) {
-                returnSuccess({
+                return returnSuccess({
                     annotations: annos,
                     dataGaps: gaps,
                     range: message.data.range,
                     ...sigs
                 })
             } else {
-                returnFailure(`Reader did not return any signals.`)
+                return returnFailure(`Reader did not return any signals.`)
             }
         } catch (e) {
-            returnFailure(e as string)
+            return returnFailure(e as string)
         }
     } else if (action === 'setup-cache') {
         // Duration is not a mandatory property.
         const duration = (message.data.dataDuration as number) || 0
         const success = LOADER.setupCache(duration)
         if (success) {
-            returnSuccess()
+            return returnSuccess()
         } else {
-            returnFailure(`Setting up signal data cache failed.`)
+            return returnFailure(`Setting up signal data cache failed.`)
         }
     } else if (action === 'release-cache') {
         await LOADER.releaseCache()
-        returnSuccess()
+        return returnSuccess()
     } else if (action === 'setup-worker') {
         const data = validateCommissionProps(
             message.data as WorkerMessage['data'] & {
@@ -110,22 +110,21 @@ onmessage = async (message: WorkerMessage) => {
             }
         )
         if (!data) {
-            returnFailure(`Validating commission props failed.`)
-            return
+            return returnFailure(`Validating commission props failed.`)
         }
         if (await setupStudy(data.header, data.formatHeader, data.url)) {
-            returnSuccess({
+            return returnSuccess({
                 dataLength: LOADER.dataLength,
                 recordingLength: LOADER.totalLength,
             })
         } else {
-            returnFailure(`Setting up study failed.`)
+            return returnFailure(`Setting up study failed.`)
         }
     } else if (action === 'shutdown') {
         await LOADER.releaseCache()
     } else if (action === 'update-settings') {
         Object.assign(SETTINGS, message.data.settings)
-        returnSuccess()
+        return returnSuccess()
     }
 }
 
