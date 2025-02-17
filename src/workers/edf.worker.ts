@@ -22,7 +22,7 @@ import { validateCommissionProps } from '@epicurrents/core/dist/util'
 
 const SCOPE = "EdfWorker"
 
-const LOADER = new EdfProcesser(SETTINGS)
+const PROCESSER = new EdfProcesser(SETTINGS)
 
 onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {
@@ -61,16 +61,26 @@ onmessage = async (message: WorkerMessage) => {
         // The direct get-signals should only be encountered when the requested signals have not been cached yet,
         // so whenever raw signals are requested and very rarely in other cases. Thus no need to use a lot of
         // time to optimize this method.
-        if (!LOADER.cacheReady) {
+        if (!PROCESSER.cacheReady) {
             return returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
         }
-        // Extract job parameters.
-        const range = message.data.range as number[]
-        const config = message.data.config as ConfigChannelFilter
+        const data = validateCommissionProps(
+            message.data as WorkerMessage['data'] & {
+                config?: ConfigChannelFilter
+                range: number[]
+            },
+            {
+                config: ['Object', 'undefined'],
+                range: ['Number', 'Number'],
+            }
+        )
+        if (!data) {
+            return
+        }
         try {
-            const sigs = await getSignals(range, config)
-            const annos = getAnnotations(range)
-            const gaps = getDataGaps(range)
+            const sigs = await getSignals(data.range, data.config)
+            const annos = getAnnotations(data.range)
+            const gaps = getDataGaps(data.range)
             if (sigs) {
                 return returnSuccess({
                     annotations: annos,
@@ -85,16 +95,41 @@ onmessage = async (message: WorkerMessage) => {
             return returnFailure(e as string)
         }
     } else if (action === 'setup-cache') {
-        // Duration is not a mandatory property.
-        const duration = (message.data.dataDuration as number) || 0
-        const success = LOADER.setupCache(duration)
-        if (success) {
-            return returnSuccess()
+        if (SETTINGS.app.useMemoryManager) {
+            const data = validateCommissionProps(
+                message.data as WorkerMessage['data'] & {
+                    buffer: SharedArrayBuffer
+                    range: { start: number }
+                },
+                {
+                    buffer: 'SharedArrayBuffer',
+                    range: 'Object',
+                }
+            )
+            if (!data) {
+                return
+            }
+            const exportProps = await PROCESSER.setupMutex(data.buffer, data.range.start)
+            if (exportProps) {
+                // Pass the generated shared buffers back to main thread.
+                return returnSuccess({
+                    cacheProperties: exportProps,
+                })
+            } else {
+                return returnFailure(`Mutex setup failed.`)
+            }
         } else {
-            return returnFailure(`Setting up signal data cache failed.`)
+            // Duration is not a mandatory property.
+            const duration = (message.data.dataDuration as number) || 0
+            const success = PROCESSER.setupCache(duration)
+            if (success) {
+                return returnSuccess()
+            } else {
+                return returnFailure(`Cache setup failed.`)
+            }
         }
     } else if (action === 'release-cache') {
-        await LOADER.releaseCache()
+        await PROCESSER.releaseCache()
         return returnSuccess()
     } else if (action === 'setup-worker') {
         const data = validateCommissionProps(
@@ -114,16 +149,25 @@ onmessage = async (message: WorkerMessage) => {
         }
         if (await setupStudy(data.header, data.formatHeader, data.url)) {
             return returnSuccess({
-                dataLength: LOADER.dataLength,
-                recordingLength: LOADER.totalLength,
+                dataLength: PROCESSER.dataLength,
+                recordingLength: PROCESSER.totalLength,
             })
         } else {
             return returnFailure(`Setting up study failed.`)
         }
     } else if (action === 'shutdown') {
-        await LOADER.releaseCache()
+        await PROCESSER.releaseCache()
     } else if (action === 'update-settings') {
-        Object.assign(SETTINGS, message.data.settings)
+        const data = validateCommissionProps(
+            message.data,
+            {
+                settings: 'Object',
+            }
+        )
+        if (!data) {
+            return
+        }
+        Object.assign(SETTINGS, data.settings)
         return returnSuccess()
     }
 }
@@ -133,18 +177,18 @@ const updateCallback = (update: { [prop: string]: unknown }) => {
         postMessage(update)
     }
 }
-LOADER.setUpdateCallback(updateCallback)
+PROCESSER.setUpdateCallback(updateCallback)
 
 const getAnnotations = (range: number[]) => {
-    return LOADER.getAnnotations(range)
+    return PROCESSER.getAnnotations(range)
 }
 
 const getDataGaps = (range: number[]) => {
-    return LOADER.getDataGaps(range)
+    return PROCESSER.getDataGaps(range)
 }
 
 const getSignals = (range: number[], config?: ConfigChannelFilter) => {
-    return LOADER.getSignals(range, config)
+    return PROCESSER.getSignals(range, config)
 }
 
 /**
@@ -153,9 +197,9 @@ const getSignals = (range: number[], config?: ConfigChannelFilter) => {
  * @returns Success (true/false).
  */
 const cacheSignalsFromUrl = (startFrom = 0) => {
-    return LOADER.cacheSignalsFromUrl(startFrom)
+    return PROCESSER.cacheSignalsFromUrl(startFrom)
 }
 
 const setupStudy = async (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string) => {
-    return LOADER.setupStudy(header, edfHeader, url)
+    return PROCESSER.setupStudy(header, edfHeader, url)
 }

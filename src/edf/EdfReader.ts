@@ -38,25 +38,14 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
     }
 
     getFileTypeWorker (): Worker | null {
-        if (this._useSAB) {
-            const workerOverride = this._workerOverride.get('edf-sab')
-            const worker = workerOverride ? workerOverride() : new Worker(
-                /* webpackChunkName: 'edf-sab.worker' */
-                new URL('../workers/edf-sab.worker', import.meta.url),
-                { type: 'module' }
-            )
-            Log.registerWorker(worker)
-            return worker
-        } else {
-            const workerOverride = this._workerOverride.get('edf')
-            const worker = workerOverride ? workerOverride() : new Worker(
-                /* webpackChunkName: 'edf.worker' */
-                new URL('../workers/edf.worker', import.meta.url),
-                { type: 'module' }
-            )
-            Log.registerWorker(worker)
-            return worker
-        }
+        const workerOverride = this._workerOverride.get('edf')
+        const worker = workerOverride ? workerOverride() : new Worker(
+            /* webpackChunkName: 'edf.worker' */
+            new URL('../workers/edf.worker', import.meta.url),
+            { type: 'module' }
+        )
+        Log.registerWorker(worker)
+        return worker
     }
 
     async readFile (source: File | StudyFileContext, config?: ConfigReadUrl) {
