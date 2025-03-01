@@ -779,7 +779,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             })
         }
         this._mutex = new BiosignalMutex()
-        Log.debug(`Initiating EDF worker cache.`, SCOPE)
+        Log.debug(`Initiating EDF worker mutex cache.`, SCOPE)
         this._mutex.initSignalBuffers(cacheProps, this._totalDataLength, buffer, bufferStart)
         Log.debug(`EDF loader cache initiation complete.`, SCOPE)
         // Mutex is fully set up.
