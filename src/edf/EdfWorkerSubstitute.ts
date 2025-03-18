@@ -40,119 +40,109 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
         }
         const action = message.action
         Log.debug(`Received message with action ${action}.`, SCOPE)
-        if (action === 'cache-signals-from-url') {
-            try {
-                const success = await this._reader.cacheSignalsFromUrl()
-                return this.returnMessage({
-                    action: action,
-                    complete: success,
-                    success: true,
-                    rn: message.rn,
-                })
-            } catch (e) {
-                Log.error(
-                    `An error occurred while trying to cache signals, operation was aborted.`,
-                SCOPE, e as Error)
-                return this.returnMessage({
-                    action: action,
-                    success: false,
-                    rn: message.rn,
-                })
-            }
-        } else if (action === 'get-signals') {
-            // Extract job parameters.
-            const data = validateCommissionProps(
-                message as WorkerMessage['data'] & {
-                    config?: ConfigChannelFilter
-                    range: number[]
-                },
-                {
-                    config: ['Object', 'undefined'],
-                    range: ['Number', 'Number'],
-                },
-                true,
-                this.returnMessage.bind(this)
-            )
-            if (!data) {
-                return
-            }
-            try {
-                const sigs = await this._reader.getSignals(data.range, data.config)
-                const annos = this._reader.getAnnotations(data.range)
-                const gaps = this._reader.getDataGaps(data.range)
-                if (sigs) {
-                    return this.returnMessage({
-                        action: action,
-                        success: true,
-                        annotations: annos,
-                        dataGaps: gaps,
-                        range: data.range,
-                        rn: message.rn,
-                        ...sigs
-                    } as WorkerMessage['data'] & GetSignalsResponse)
-                } else {
-                    return this.returnMessage({
-                        action: action,
-                        success: false,
-                        rn: message.rn,
+        switch (action) {
+            case 'cache-signals-from-url': {
+                try {
+                    const success = await this._reader.cacheSignalsFromUrl()
+                    return this.returnSuccess({
+                        ...message,
+                        complete: success,
                     })
+                } catch (e) {
+                    Log.error(
+                        `An error occurred while trying to cache signals, operation was aborted.`,
+                    SCOPE, e as Error)
+                    return this.returnFailure(message)
                 }
-            } catch (e) {
-                Log.error(`Getting signals failed.`, SCOPE, e as Error)
-                return this.returnMessage({
-                    action: action,
-                    success: false,
-                    rn: message.rn,
+            }
+            case 'get-signals': {
+                // Extract job parameters.
+                const data = validateCommissionProps(
+                    message as WorkerMessage['data'] & {
+                        config?: ConfigChannelFilter
+                        range: number[]
+                    },
+                    {
+                        config: ['Object', 'undefined'],
+                        range: ['Number', 'Number'],
+                    },
+                    true,
+                    this.returnMessage.bind(this)
+                )
+                if (!data) {
+                    return
+                }
+                try {
+                    const sigs = await this._reader.getSignals(data.range, data.config)
+                    const annos = this._reader.getAnnotations(data.range)
+                    const gaps = this._reader.getDataGaps(data.range)
+                    if (sigs) {
+                        return this.returnSuccess({
+                            ...message,
+                            annotations: annos,
+                            dataGaps: gaps,
+                            ...sigs,
+                        } as WorkerMessage['data'] & Omit<GetSignalsResponse, 'success'>)
+                    } else {
+                        return this.returnFailure(message)
+                    }
+                } catch (e) {
+                    Log.error(`Getting signals failed.`, SCOPE, e as Error)
+                    return this.returnFailure(message)
+                }
+            }
+            case 'release-cache': {
+                this._reader.releaseCache()
+                return this.returnSuccess(message)
+            }
+            case 'setup-cache': {
+                // Duration is not a mandatory property.
+                const duration = (message.dataDuration as number) || 0
+                const cache = this._reader.setupCache(duration)
+                return this.returnSuccess({
+                    ...message,
+                    cacheProperties: cache,
                 })
             }
-        } else if (action === 'setup-cache') {
-            // Duration is not a mandatory property.
-            const duration = (message.dataDuration as number) || 0
-            const cache = this._reader.setupCache(duration)
-            return this.returnMessage({
-                action: action,
-                cacheProperties: cache,
-                success: true,
-                rn: message.rn,
-            })
-        } else if (action === 'setup-worker') {
-            const data = validateCommissionProps(
-                message as WorkerMessage['data'] & {
-                    formatHeader: EdfHeader
-                    header: BiosignalHeaderRecord
-                    url: string
-                },
-                {
-                    formatHeader: 'Object',
-                    header: 'Object',
-                    url: 'String',
-                },
-                true,
-                this.returnMessage.bind(this)
-            )
-            if (!data) {
-                return
-            }
-            this._reader.setupStudy(data.header, data.formatHeader, data.url).then(result => {
+            case 'setup-worker': {
+                const data = validateCommissionProps(
+                    message as WorkerMessage['data'] & {
+                        formatHeader: EdfHeader
+                        header: BiosignalHeaderRecord
+                        url: string
+                    },
+                    {
+                        formatHeader: 'Object',
+                        header: 'Object',
+                        url: 'String',
+                    },
+                    true,
+                    this.returnMessage.bind(this)
+                )
+                if (!data) {
+                    return
+                }
+                const result = await this._reader.setupStudy(data.header, data.formatHeader, data.url)
                 if (result) {
-                    return this.returnMessage({
-                        action: action,
+                    return this.returnSuccess({
+                        ...message,
                         dataLength: this._reader.dataLength,
                         recordingLength: this._reader.totalLength,
-                        success: true,
-                        rn: message.rn,
                     })
                 } else {
-                    return this.returnMessage({
-                        action: action,
-                        success: false,
-                        rn: message.rn,
-                    })
+                    return this.returnFailure(message)
                 }
-            })
-
-        } else {
-            super.postMessage(message)
+            }
+            case 'shutdown':
+            case 'decommission': {
+                await this._reader.destroy()
+                this._reader = null as unknown as EdfProcesser
+                super.shutdown()
+                return this.returnSuccess(message)
+            }
+            default: {
+                super.postMessage(message)
+            }
         }
     }
 }
