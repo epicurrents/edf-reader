@@ -95,7 +95,7 @@ onmessage = async (message: WorkerMessage) => {
             return returnFailure(e as string)
         }
     } else if (action === 'setup-cache') {
-        if (SETTINGS.app.useMemoryManager) {
+        if (message.data.useMemoryManager) {
             const data = validateCommissionProps(
                 message.data as WorkerMessage['data'] & {
                     buffer: SharedArrayBuffer
