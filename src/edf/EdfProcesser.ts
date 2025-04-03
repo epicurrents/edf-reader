@@ -171,7 +171,9 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             // Start loading missing parts consecutively.
             for (const proc of newCacheProcs) {
                 let nextPart = Math.floor(proc.start/this._dataUnitDuration)
-                while (nextPart >= 0 && nextPart*this._dataUnitDuration < proc.target.end) {
+                // Check that the cache has not been released in the middle of loading data and that we're not at the
+                // end of the recording.
+                while (this._cache && nextPart >= 0 && nextPart*this._dataUnitDuration < proc.target.end) {
                     // Continue loading records, but don't hog the entire thread.
                     if (proc.continue) {
                         [nextPart] = await Promise.all([
@@ -605,7 +607,9 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             const startTime = this._dataUnitIndexToTime(startRecord)
             const endTime = this._dataUnitIndexToTime(nextRecord)
             const newSignals = await this.getSignalPart(startTime, endTime)
-            if (newSignals?.signals.length && (!process || process.continue)) {
+            // Check that some signals were loaded and that the process has not been cancelled/cache released while
+            // waiting for the signal data.
+            if (newSignals?.signals.length && (!process || process.continue) && this._cache) {
                 if (this._header.discontinuous) {
                     // Convert start and end time to exclude gaps.
                     newSignals.start = this._recordingTimeToCacheTime(newSignals.start)
