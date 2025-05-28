@@ -15,6 +15,7 @@ import {
     type StudyFileContext,
 } from '@epicurrents/core/dist/types'
 import EdfDecoder from './EdfDecoder'
+import EdfWorkerSubstitute from './EdfWorkerSubstitute'
 import { type EdfHeader, type EdfHeaderSignal } from '#types'
 import Log from 'scoped-event-log'
 
@@ -35,28 +36,21 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         ]
         super(SCOPE, [], fileTypeAssocs)
         this._useSAB = useSAB
+        this._getWorkerSubstitute = () => new EdfWorkerSubstitute()
     }
 
-    getFileTypeWorker (): Worker | null {
-        if (this._useSAB) {
-            const workerOverride = this._workerOverride.get('edf-sab')
-            const worker = workerOverride ? workerOverride() : new Worker(
-                /* webpackChunkName: 'edf-sab.worker' */
-                new URL('../workers/edf-sab.worker', import.meta.url),
-                { type: 'module' }
-            )
-            Log.registerWorker(worker)
-            return worker
-        } else {
-            const workerOverride = this._workerOverride.get('edf')
-            const worker = workerOverride ? workerOverride() : new Worker(
-                /* webpackChunkName: 'edf.worker' */
-                new URL('../workers/edf.worker', import.meta.url),
-                { type: 'module' }
-            )
-            Log.registerWorker(worker)
-            return worker
+    getFileTypeWorker (override?: string): Worker | null {
+        if (override === 'substitute') {
+            return this._getWorkerSubstitute()
         }
+        const getWorkerOverride = this._workerOverrides.get(override || 'edf')
+        const worker = getWorkerOverride ? getWorkerOverride() : new Worker(
+            /* webpackChunkName: 'edf.worker' */
+            new URL('../workers/edf.worker', import.meta.url),
+            { type: 'module' }
+        )
+        Log.registerWorker(worker)
+        return worker
     }
 
     async readFile (source: File | StudyFileContext, config?: ConfigReadUrl) {
