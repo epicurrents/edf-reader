@@ -11,16 +11,15 @@
  * @license    Apache-2.0
  */
 
-import { GenericAsset, GenericBiosignalHeader } from '@epicurrents/core'
+import { GenericAsset } from '@epicurrents/core'
 import {
     floatsAreEqual,
     NUMERIC_ERROR_VALUE,
     safeObjectFrom ,
 } from '@epicurrents/core/dist/util'
-import EdfRecording from './EdfRecording'
+import EdfRecording from '#edf/EdfHeaderRecord'
 import {
     type AnnotationTemplate,
-    type BiosignalFilters,
     type FileDecoder,
     type SignalDataGapMap,
 } from '@epicurrents/core/dist/types'
@@ -43,86 +42,6 @@ export default class EdfDecoder implements FileDecoder {
     private _dataFormat = 'edf'
     private _inputBuffer = null as null | ArrayBuffer
     private _output = null as null | EdfRecording
-    /**
-     * Try to extract the type of signal from the signal info.
-     * @param signal - Signal information from the EDF header.
-     * @param labelMatchers - A map of labels (RegExp strings) to signal types (optional).
-     * @returns Type of the signal or empty string if unsuccessful.
-     */
-    public static ExtractSignalType (signal: EdfSignalInfo, labelMatchers?: Map<string, string>): string {
-        const label = signal.label
-        const matchers = labelMatchers
-                         ? labelMatchers
-                         : new Map<string, string>()
-        // Apply a set of default label matchers after the custom matchers.
-        const defaultMatchers = [
-            // Often all signal labels in an EEG EDF export have "EEG" prefixed or mentioned,
-            // so try to match to polygraphic signals first.
-            ["emg", "emg"],
-            ["eog", "eog"],
-            ["ecg|ekg", "ekg"],
-            ["eeg", "eeg"],
-        ]
-        for (const [defLabel, defType] of defaultMatchers) {
-            if (!matchers.has(defLabel)) {
-                matchers.set(defLabel, defType)
-            }
-        }
-        for (const [matchLabel, matchType] of matchers) {
-            if (label.match(new RegExp(matchLabel))) {
-                return matchType
-            }
-        }
-        return ""
-    }
-    /**
-     * Convert the given EDF header record into generic biosignal headers.
-     * @param headers - Parsed EDF headers.
-     * @returns Biosignal header record.
-     */
-    public static HeaderToBiosignalHeader (headers: EdfHeader) {
-        const biosigHeaders = new GenericBiosignalHeader(
-            headers.dataFormat,
-            headers.patientId,
-            headers.patientId,
-            headers.dataRecordCount,
-            headers.dataRecordDuration,
-            headers.recordByteSize,
-            headers.signalCount,
-            headers.signalInfo.map(s => {
-                return {
-                    label: s.label,
-                    name: s.label,
-                    physicalUnit: s.physicalUnit,
-                    prefiltering: EdfDecoder.ParsePrefiltering(s.prefiltering),
-                    sampleCount: s.sampleCount,
-                    samplingRate: s.sampleCount/headers.dataRecordDuration,
-                    sensitivity: 0,
-                    type: EdfDecoder.ExtractSignalType(s)
-                }
-            }),
-            headers.recordingDate,
-            headers.discontinuous,
-            [],
-        )
-        return biosigHeaders
-    }
-    /**
-     * Parse EDF signal prefiltering field per the suggestion in the official EDF spec.
-     * @param prefiltering - Prefiltering information as a string.
-     * @returns Biosignal filters.
-     */
-    public static ParsePrefiltering (prefiltering: string): BiosignalFilters {
-        const filterHp = prefiltering.match(/HP:([0-9\\.]+)Hz/i)
-        const filterLp = prefiltering.match(/LP:([0-9\\.]+)Hz/i)
-        const filterNotch = prefiltering.match(/N:([0-9\\.]+)Hz/i)
-        return {
-            bandreject: [],
-            highpass: filterHp ? parseFloat(filterHp[1]) : 0,
-            lowpass: filterLp ? parseFloat(filterLp[1]) : 0,
-            notch: filterNotch ? parseFloat(filterNotch[1]) : 0,
-        }
-    }
     /**
      * Create an EdfDecoder. If a buffer is provided, it will immediately be set as the input buffer for this decoder.
      * @param buffer - ArrayBuffer to use as input (optional).

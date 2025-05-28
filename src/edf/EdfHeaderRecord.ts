@@ -1,10 +1,11 @@
 /**
- * EDF recording class to store EDF header information.
+ * EDF header record class to store EDF header information.
  * @package    epicurrents/edf-reader
  * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
  */
 
+import { extractSignalModality, parsePrefiltering } from '#util'
 import { GenericBiosignalHeader } from '@epicurrents/core'
 import {
     type AnnotationTemplate,
@@ -13,7 +14,6 @@ import {
     type SignalDataGapMap,
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader } from '#types'
-import EdfDecoder from './EdfDecoder'
 import Log from 'scoped-event-log'
 
 const SCOPE = 'EdfHeader'
@@ -42,16 +42,15 @@ export default class EdfRecording extends GenericBiosignalHeader {
             if (sigSr > maxSr) {
                 maxSr = sigSr
             }
-            // Try to parse prefiltering field.
             signalProps.push({
                 label: sig.label,
+                modality: extractSignalModality(sig),
                 name: sig.label,
                 physicalUnit: sig.physicalUnit,
-                prefiltering: EdfDecoder.ParsePrefiltering(sig.prefiltering),
+                prefiltering: parsePrefiltering(sig.prefiltering),
                 sampleCount: sig.sampleCount,
                 samplingRate: sigSr,
                 sensitivity: 0,
-                type: EdfDecoder.ExtractSignalType(sig),
             } as BiosignalHeaderSignal)
         }
         super(
@@ -264,7 +263,7 @@ export default class EdfRecording extends GenericBiosignalHeader {
             Log.warn(`Signal index ${index} is out of range, cannot return signal prefiltering.`, SCOPE)
             return null
         }
-        return EdfDecoder.ParsePrefiltering(this._header.signalInfo[index].prefiltering)
+        return parsePrefiltering(this._header.signalInfo[index].prefiltering)
     }
 
     /**

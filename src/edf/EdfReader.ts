@@ -16,6 +16,7 @@ import {
 } from '@epicurrents/core/dist/types'
 import EdfDecoder from './EdfDecoder'
 import EdfWorkerSubstitute from './EdfWorkerSubstitute'
+import { headerToBiosignalHeader } from '#util'
 import { type EdfHeader, type EdfHeaderSignal } from '#types'
 import Log from 'scoped-event-log'
 
@@ -137,24 +138,26 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         const totalRecords = fullHeader.dataUnitCount
         const signals = []
         for (let i=0; i<fullHeader.signalCount; i++) {
-            const sigType = config?.signals ? config.signals[i]?.type : 'sig'
+            const modality = config?.signals ? config.signals[i]?.modality : 'sig'
             // Try to determine amplification from unit.
             const unitLow = fullHeader.getSignalPhysicalUnit(i)?.toLowerCase()
-            const amplification = unitLow === 'uv' || unitLow === 'µv' ? 1
-                                    : unitLow === 'mv' ? 1_000 : unitLow === 'v' ?  1_000_000 : 1
+            const scale = unitLow === 'uv' || unitLow === 'µv' ? 0
+                        : unitLow === 'mv'
+                            ? -3 : unitLow === 'v'
+                                ?  -6 : 0
             const label = fullHeader.getSignalLabel(i) || ''
             // Try to determine record start.
             const sigData = {
-                label: label,
+                label,
                 name: label,
-                type: sigType,
+                modality,
                 samplingRate: fullHeader.getSignalSamplingFrequency(i) || 0,
-                amplification: amplification,
                 sensitivity: 0,
                 signal: new Float32Array(),
                 unit: fullHeader.getSignalPhysicalUnit(i) || '',
                 samplesPerRecord: fullHeader.getSignalNumberOfSamplesPerRecord(i) || 0,
                 sampleCount: 0,
+                scale,
                 physicalMin: fullHeader.getSignalPhysicalMin(i) || 0,
                 physicalMax: fullHeader.getSignalPhysicalMax(i) || 0,
                 filter: fullHeader.getSignalPrefiltering(i) || '',
@@ -166,11 +169,11 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         }
         const meta = this._study.meta as {
             channels: EdfHeaderSignal[]
-            header:  GenericBiosignalHeader
+            header: GenericBiosignalHeader
             formatHeader: EdfHeader
         }
         meta.channels = signals
-        meta.header = EdfDecoder.HeaderToBiosignalHeader(fullHeader.header)
+        meta.header = headerToBiosignalHeader(fullHeader.header)
         meta.formatHeader = fullHeader.header
         // Always overwrite study format and type with EDF/biosignal.
         this._study.format = 'edf'
