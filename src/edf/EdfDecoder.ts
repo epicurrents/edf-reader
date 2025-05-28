@@ -17,7 +17,7 @@ import {
     NUMERIC_ERROR_VALUE,
     safeObjectFrom ,
 } from '@epicurrents/core/dist/util'
-import EdfRecording from '#edf/EdfHeaderRecord'
+import EdfHeaderRecord from '#edf/EdfHeaderRecord'
 import {
     type AnnotationTemplate,
     type FileDecoder,
@@ -41,7 +41,7 @@ const SCOPE = 'EdfDecoder'
 export default class EdfDecoder implements FileDecoder {
     private _dataFormat = 'edf'
     private _inputBuffer = null as null | ArrayBuffer
-    private _output = null as null | EdfRecording
+    private _output = null as null | EdfHeaderRecord
     /**
      * Create an EdfDecoder. If a buffer is provided, it will immediately be set as the input buffer for this decoder.
      * @param buffer - ArrayBuffer to use as input (optional).
@@ -55,7 +55,7 @@ export default class EdfDecoder implements FileDecoder {
             this._dataFormat = header.dataFormat
         }
         if (header) {
-            this._output = new EdfRecording(header, undefined, undefined, undefined, undefined, header.dataFormat)
+            this._output = new EdfHeaderRecord(header, undefined, undefined, undefined, undefined, header.dataFormat)
         }
     }
 
@@ -65,7 +65,7 @@ export default class EdfDecoder implements FileDecoder {
     * @returns The output.
     */
     get output () {
-        return this._output as EdfRecording
+        return this._output as EdfHeaderRecord
     }
 
     appendInput (buffer: ArrayBuffer) {
@@ -123,7 +123,7 @@ export default class EdfDecoder implements FileDecoder {
         } else if (header) {
             this._dataFormat = header.dataFormat
         }
-        let format = this._dataFormat.toUpperCase()
+        const format = this._dataFormat.toUpperCase()
         if (!dataBuffer) {
             Log.error(`Cannot decode ${format} data: an input buffer must be specified!`, SCOPE)
             return null
@@ -352,7 +352,7 @@ export default class EdfDecoder implements FileDecoder {
         }
         if (!buffer) {
             // Refresh output with actual signal data.
-            this._output = new EdfRecording(
+            this._output = new EdfHeaderRecord(
                 useHeaders,
                 returnRaw ? rawSignals : [],
                 returnRaw ? [] : physicalSignals,
@@ -599,7 +599,7 @@ export default class EdfDecoder implements FileDecoder {
         // Stop here if signals are not needed.
         if (noSignals) {
             // Generate an "empty" output object from the header information.
-            this._output = new EdfRecording(header, [], [], undefined, undefined, this._dataFormat)
+            this._output = new EdfHeaderRecord(header, [], [], undefined, undefined, this._dataFormat)
             return header
         }
         /** Parse signal info fields. */
@@ -688,7 +688,7 @@ export default class EdfDecoder implements FileDecoder {
             SCOPE)
         }
         // Generate an "empty" output object from the header information.
-        this._output = new EdfRecording(header, undefined, undefined, undefined, undefined, this._dataFormat)
+        this._output = new EdfHeaderRecord(header, undefined, undefined, undefined, undefined, this._dataFormat)
         return header
     }
 

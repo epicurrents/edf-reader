@@ -35,6 +35,7 @@ module.exports = {
         extensions: ['.ts', '.js', '.json'],
         alias: {
             '#root': path.resolve(__dirname, './'),
+            '#edf': path.resolve(__dirname, 'src', 'edf'),
             '#types': path.resolve(__dirname, 'src', 'types'),
             '#util': path.resolve(__dirname, 'src', 'util'),
         },
