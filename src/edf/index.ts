@@ -1,7 +1,7 @@
 import EdfDecoder from './EdfDecoder'
 import EdfEncoder from './EdfEncoder'
 import EdfHeaderRecord from './EdfHeaderRecord'
-import EdfProcesser from './EdfProcesser'
+import EdfImporter from './EdfImporter'
 import EdfReader from './EdfReader'
 import EdfWorkerSubstitute from './EdfWorkerSubstitute'
 
@@ -9,7 +9,7 @@ export {
     EdfDecoder,
     EdfEncoder,
     EdfHeaderRecord,
-    EdfProcesser,
+    EdfImporter,
     EdfReader,
     EdfWorkerSubstitute,
 }

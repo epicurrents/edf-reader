@@ -7,17 +7,17 @@
 
 import { GenericBiosignalHeader, GenericFileReader } from '@epicurrents/core'
 import { safeObjectFrom, secondsToTimeString } from '@epicurrents/core/dist/util'
-import {
-    type ConfigReadSignals,
-    type ConfigReadUrl,
-    type SignalFileReader,
-    type StudyContextFile,
-    type StudyFileContext,
+import type {
+    ConfigReadSignals,
+    ConfigReadUrl,
+    SignalFileReader,
+    StudyContextFile,
+    StudyFileContext,
 } from '@epicurrents/core/dist/types'
 import EdfDecoder from './EdfDecoder'
 import EdfWorkerSubstitute from './EdfWorkerSubstitute'
 import { headerToBiosignalHeader } from '#util'
-import { type EdfHeader, type EdfHeaderSignal } from '#types'
+import { ConfigReadEdfHeader, type EdfHeader, type EdfHeaderSignal } from '#types'
 import Log from 'scoped-event-log'
 
 const SCOPE = 'EdfReader'
@@ -40,97 +40,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         this._getWorkerSubstitute = () => new EdfWorkerSubstitute()
     }
 
-    getFileTypeWorker (override?: string): Worker | null {
-        if (override === 'substitute') {
-            return this._getWorkerSubstitute()
-        }
-        const getWorkerOverride = this._workerOverrides.get(override || 'edf')
-        const worker = getWorkerOverride ? getWorkerOverride() : new Worker(
-            /* webpackChunkName: 'edf.worker' */
-            new URL('../workers/edf.worker', import.meta.url),
-            { type: 'module' }
-        )
-        Log.registerWorker(worker)
-        return worker
-    }
-
-    async readFile (source: File | StudyFileContext, config?: ConfigReadUrl) {
-        const file = (source as StudyFileContext).file || source as File
-        const fileType = file.name.endsWith('.bdf') ? 'bdf' : 'edf'
-        const fileDesig = fileType.toUpperCase()
-        Log.debug(`Loading ${fileType} from file ${file.webkitRelativePath}.`, SCOPE)
-        const studyFile = {
-            file: file,
-            format: fileType,
-            mime: config?.mime || file.type || null,
-            name: config?.name || file.name || '',
-            partial: false,
-            range: [],
-            role: 'data',
-            modality: 'signal',
-            url: config?.url || URL.createObjectURL(file),
-        } as StudyContextFile
-        try {
-            // Load header part from the EDF file into the study.
-            const mainHeader = file.slice(0, 256)
-            const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
-            if (!edfHeader) {
-                Log.error(`Could not load ${fileDesig} header from the given file.`, SCOPE)
-                return null
-            }
-            const fullHeader = file.slice(256, (edfHeader.signalCount + 1)*256)
-            await this.readSignals(await fullHeader.arrayBuffer(), config?.signalReader)
-        } catch (e: unknown) {
-            Log.error(`${fileDesig} header parsing error:`, SCOPE, e as Error)
-            return null
-        }
-        this._study.files.push(studyFile)
-        return studyFile
-    }
-
-    readHeader (source: ArrayBuffer) {
-        this._decoder.setInput(source)
-        this._decoder.decodeHeader(true)
-        const edfRecording = this._decoder.output
-        const recType = edfRecording.isEdfPlus && edfRecording.isDiscontinuous
-                        ? `EDF/BDF+ (discontinuous) file header parsed:`
-                        : edfRecording.isEdfPlus
-                        ? `EDF/BDF+ (continuous) file header parsed:`
-                        : `EDF/BDF file header parsed:`
-        Log.debug([
-                recType,
-                `${edfRecording.signalCount} signals,`,
-                `${edfRecording.dataUnitCount} records,`,
-                `${edfRecording.dataUnitDuration} seconds/record,`,
-                `${secondsToTimeString(edfRecording.totalDuration)} duration.`,
-            ], SCOPE
-        )
-        // Try to fetch metadata from header.
-        // Saving metadata separately is important in case libraries are added or changed later.
-        const meta = this._study.meta as EdfHeader & { header?: EdfHeader }
-        if (!meta.header) {
-            (this._study.meta as { header: EdfHeader }).header = safeObjectFrom(
-                {
-                    patientId: meta.patientId || edfRecording.patientId || '',
-                    recordId: meta.recordId || edfRecording.recordingId || null,
-                    startDate: meta.startDate || edfRecording.recordingStartTime || null,
-                    nDataRecords: edfRecording.dataUnitCount || null,
-                    recordLen: edfRecording.dataUnitDuration || null,
-                    signalCount: edfRecording.signalCount || 0,
-                }
-            )
-        } else {
-            meta.header.patientId = meta.patientId || edfRecording.patientId || ''
-            meta.header.recordId = meta.recordId || edfRecording.recordingId || null
-            meta.header.startDate = meta.startDate || edfRecording.recordingStartTime || null
-            meta.header.nDataRecords = edfRecording.dataUnitCount || null
-            meta.header.recordLen = edfRecording.dataUnitDuration || null
-            meta.header.signalCount = edfRecording.signalCount || 0
-        }
-        return meta.header
-    }
-
-    async readSignals (source: ArrayBuffer, config?: ConfigReadSignals) {
+    protected async _readSignalInfo (source: ArrayBuffer, config?: ConfigReadSignals) {
         this._decoder.appendInput(source)
         this._decoder.decodeHeader()
         const fullHeader = this._decoder.output
@@ -180,6 +90,99 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
         this._study.modality = 'signal'
     }
 
+    getFileTypeWorker (override?: string): Worker | null {
+        if (override === 'substitute') {
+            return this._getWorkerSubstitute()
+        }
+        const getWorkerOverride = this._workerOverrides.get(override || 'edf')
+        const worker = getWorkerOverride ? getWorkerOverride() : new Worker(
+            /* webpackChunkName: 'edf.worker' */
+            new URL('../workers/edf.worker', import.meta.url),
+            { type: 'module' }
+        )
+        Log.registerWorker(worker)
+        return worker
+    }
+
+    async readFile (source: File | StudyFileContext, config?: ConfigReadUrl) {
+        const file = (source as StudyFileContext).file || source as File
+        const fileType = file.name.endsWith('.bdf') ? 'bdf' : 'edf'
+        const fileDesig = fileType.toUpperCase()
+        Log.debug(`Loading ${fileType} from file ${file.webkitRelativePath}.`, SCOPE)
+        const studyFile = {
+            file: file,
+            format: fileType,
+            mime: config?.mime || file.type || null,
+            name: config?.name || file.name || '',
+            partial: false,
+            range: [],
+            role: 'data',
+            modality: 'signal',
+            url: config?.url || URL.createObjectURL(file),
+        } as StudyContextFile
+        try {
+            // Load header part from the EDF file into the study.
+            const mainHeader = file.slice(0, 256)
+            const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
+            if (!edfHeader) {
+                Log.error(`Could not load ${fileDesig} header from the given file.`, SCOPE)
+                return null
+            }
+            const fullHeader = file.slice(256, (edfHeader.signalCount + 1)*256)
+            await this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
+        } catch (e: unknown) {
+            Log.error(`${fileDesig} header parsing error:`, SCOPE, e as Error)
+            return null
+        }
+        this._study.files.push(studyFile)
+        return studyFile
+    }
+
+    async readHeader (source: ArrayBuffer, config?: ConfigReadEdfHeader): Promise<EdfHeader | null> {
+        this._decoder.setInput(source)
+        this._decoder.decodeHeader(true)
+        const edfRecording = this._decoder.output
+        const recType = edfRecording.isEdfPlus && edfRecording.isDiscontinuous
+                        ? `EDF/BDF+ (discontinuous) file header parsed:`
+                        : edfRecording.isEdfPlus
+                        ? `EDF/BDF+ (continuous) file header parsed:`
+                        : `EDF/BDF file header parsed:`
+        Log.debug([
+                recType,
+                `${edfRecording.signalCount} signals,`,
+                `${edfRecording.dataUnitCount} records,`,
+                `${edfRecording.dataUnitDuration} seconds/record,`,
+                `${secondsToTimeString(edfRecording.totalDuration)} duration.`,
+            ], SCOPE
+        )
+        // Try to fetch metadata from header.
+        // Saving metadata separately is important in case libraries are added or changed later.
+        const meta = this._study.meta as EdfHeader & { header?: EdfHeader }
+        if (!meta.header) {
+            (this._study.meta as { header: EdfHeader }).header = safeObjectFrom(
+                {
+                    patientId: meta.patientId || edfRecording.patientId || '',
+                    recordId: meta.recordId || edfRecording.recordingId || null,
+                    startDate: meta.startDate || edfRecording.recordingStartTime || null,
+                    nDataRecords: edfRecording.dataUnitCount || null,
+                    recordLen: edfRecording.dataUnitDuration || null,
+                    signalCount: edfRecording.signalCount || 0,
+                }
+            )
+        } else {
+            meta.header.patientId = meta.patientId || edfRecording.patientId || ''
+            meta.header.recordId = meta.recordId || edfRecording.recordingId || null
+            meta.header.startDate = meta.startDate || edfRecording.recordingStartTime || null
+            meta.header.nDataRecords = edfRecording.dataUnitCount || null
+            meta.header.recordLen = edfRecording.dataUnitDuration || null
+            meta.header.signalCount = edfRecording.signalCount || 0
+        }
+        if (config?.signals?.length) {
+            await this._readSignalInfo(source, config as ConfigReadSignals)
+        }
+        return meta.header || null
+    }
+
     async readUrl (source: string | StudyFileContext, config?: ConfigReadUrl) {
         const url = (source as StudyFileContext).url || source as string
         const fileType = config?.name?.endsWith('.bdf') || url.endsWith('.bdf') ? 'bdf' : 'edf'
@@ -213,7 +216,7 @@ export default class EdfReader extends GenericFileReader implements SignalFileRe
             const fullHeader = await fetch(url, {
                 headers: headers,
             })
-            await this.readSignals(await fullHeader.arrayBuffer(), config?.signalReader)
+            await this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
         } catch (e: unknown) {
             Log.error(`${fileDesig} header parsing error:`, SCOPE, e as Error)
             return null

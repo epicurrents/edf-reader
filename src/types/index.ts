@@ -8,6 +8,8 @@
 import type {
     AnnotationTemplate,
     BiosignalChannel,
+    ConfigReadHeader,
+    ConfigReadSignals,
     SafeObject,
     SignalCachePart,
     SignalDataGapMap,
@@ -29,6 +31,7 @@ import type {
  * - video: Video files that are not time-synced to the recording, but are related to it.
  */
 export type AttachmentType = "audio" | "document" | "history" | "image" | "measurement" | "other" | "status" | "video"
+export type ConfigReadEdfHeader = ConfigReadHeader & Partial<ConfigReadSignals>
 /**
  * EDF footer contains metadata about the recording, such as annotations, data gaps, channel properties, and videos.
  * It is an extension to the EDF header. It is meant to be read and parsed after the header and before the signal data.
@@ -44,7 +47,7 @@ export type EdfFooter = SafeObject & {
         byteStart: number
         /** Description of the attachment contents. */
         description: string
-        /** Attachemnt file mime type. */
+        /** Attachment file mime type. */
         mimeType: string
         /** Attachment type (e.g. image). */
         type: AttachmentType
@@ -60,7 +63,7 @@ export type EdfFooter = SafeObject & {
      */
     config: SafeObject
     /** Data gaps in the recording. */
-    dataGaps: [number, number][]
+    dataGaps: SignalDataGapMap
     /** Recording modality (in this case "eeg"). */
     modality: "eeg"
     /** Recording date as an ISO string or null if not known. */
@@ -233,8 +236,4 @@ export type EdfSignalProperties = {
      * This is the minimum resolution of the signal that is decoded from the EDF recording.
      */
     uVperInt16: number
-}
-
-export interface FileFormatEncoder {
-
 }

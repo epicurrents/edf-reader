@@ -10,25 +10,28 @@ import type {
     EdfFooter,
     EdfHeader,
     EdfRecordingType,
-    FileFormatEncoder,
 } from '#types'
 import type {
     AnnotationTemplate,
     BiosignalHeaderRecord,
     BiosignalHeaderSignal,
+    SignalDataGapMap,
 } from '@epicurrents/core/dist/types'
 import { safeObjectFrom } from '@epicurrents/core/dist/util'
 import { Log } from 'scoped-event-log'
+import { SignalDataEncoder } from '@epicurrents/core/dist/types/reader'
+import { GenericAsset, GenericBiosignalHeader } from '@epicurrents/core'
 
 const SCOPE = 'EdfEncoder'
 
-export default class EdfEncoder implements FileFormatEncoder {
+export default class EdfEncoder extends GenericAsset implements SignalDataEncoder {
     /** Buffers that are ready to be written into the EDF file. */
     #buffers = {
         footer: null as ArrayBuffer | null,
         header: null as ArrayBuffer | null,
         signals: null as ArrayBuffer | null,
     }
+    #dataEncoding: TypedNumberArrayConstructor
     #digitalSignals: Int16Array[] = []
     #edfHeader: EdfHeader | null = null
     /** Digital signal buffer from a source EDF recording. */
@@ -86,9 +89,15 @@ export default class EdfEncoder implements FileFormatEncoder {
      * Create a new EDF encoder.
      * @param recordingType The type of the recording (e.g. 'eeg').
      */
-    constructor (recordingType: EdfRecordingType) {
+    constructor (recordingType: EdfRecordingType, dataEncoding: TypedNumberArrayConstructor = Int16Array) {
+        super('edf-encoder', 'writer')
+        this.#dataEncoding = dataEncoding
         this.#recordingType = recordingType
         this.#footer.modality = recordingType
+    }
+
+    get dataEncoding () {
+        return this.#dataEncoding
     }
 
     get #includedSignals (): Map<number, BiosignalHeaderSignal> {
@@ -157,7 +166,7 @@ export default class EdfEncoder implements FileFormatEncoder {
                 ? this.#header.recordingStartTime.toISOString()
                 : '2000-01-01T00:00:00.000Z' // Default date.
             this.#footer.annotations = this.#header.annotations || []
-            this.#footer.dataGaps = Array.from(this.#header.dataGaps.entries()) || []
+            this.#footer.dataGaps = this.#header.dataGaps || new Map()
         }
         // Update the channels in the footer based on the included signals.
         this.#footer.channels = []
@@ -178,6 +187,43 @@ export default class EdfEncoder implements FileFormatEncoder {
                 unit: signal.physicalUnit || '',
             }))
         }
+    }
+
+    #updateHeader (properties?: Partial<BiosignalHeaderRecord>) {
+        if (this.#locked) {
+            Log.error(`Cannot update header, header properties are locked.`, SCOPE)
+            return
+        }
+        if (this.#header) {
+            // If the header is already set, update it with the given properties.
+            if (properties?.dataUnitDuration !== undefined && properties.dataUnitDuration !== 1) {
+                // Warn user if the data unit duration is not 1 second
+                Log.warn(
+                    `EdfEncoder only supports 1 second data unit duration, ` +
+                    `trying to encode signal data with new value of ${properties.dataUnitDuration} will fail.`,
+                    SCOPE
+                )
+            }
+            this.#header.annotations = properties?.annotations || this.#header.annotations || []
+            this.#header.dataGaps = properties?.dataGaps || this.#header.dataGaps || new Map()
+            this.#header.dataDuration = properties?.dataDuration || this.#header.dataDuration || 0
+            this.#header.dataUnitCount = properties?.dataUnitCount || this.#header.dataUnitCount || 0
+            this.#header.dataUnitDuration = properties?.dataUnitDuration || this.#header.dataUnitDuration || 1
+            this.#header.dataUnitSize = properties?.dataUnitSize || this.#header.dataUnitSize || 0
+            this.#header.discontinuous = properties?.discontinuous || this.#header.discontinuous || false
+            this.#header.patientId = properties?.patientId || this.#header.patientId || 'Anonymous'
+            this.#header.recordingId = properties?.recordingId || this.#header.recordingId || 'Epicurrents EDF'
+            this.#header.recordingStartTime = properties?.recordingStartTime
+                                              || this.#header.recordingStartTime
+                                              || null
+            this.#header.signalCount = properties?.signalCount || this.#header.signalCount || 0
+            this.#header.signals = properties?.signals || this.#header.signals || []
+        } else {
+            // If the header is not set, create a new one.
+            this.createHeader(properties)
+        }
+        // Update the footer based on the header.
+        this.#updateFooter()
     }
 
     async #writeFooterBuffer (anonymize = false): Promise<ArrayBuffer | null> {
@@ -347,7 +393,7 @@ export default class EdfEncoder implements FileFormatEncoder {
             }
         }
         for (const [idx, signal] of includedSignals) {
-            let physMax = this.#getPhysicalRangeFor(idx, signal)[1]
+            const physMax = this.#getPhysicalRangeFor(idx, signal)[1]
             for (let i = 0; i < 8; i++) {
                 headerView.setUint8(offset++, (physMax.toString().charCodeAt(i) || EdfEncoder.EMPTY_SPACE))
             }
@@ -433,10 +479,10 @@ export default class EdfEncoder implements FileFormatEncoder {
         // of full second(s).
         // If the recording does not contain gaps or we cannot encode them, produce a normal EDF file.
         const encodeGaps = this.#header.discontinuous
-                           && this.#footer.dataGaps.length
-                           && !this.#footer.dataGaps.filter(
+                           && this.#footer.dataGaps.size
+                           && !this.#footer.dataGaps.entries().filter(
                                     ([start, duration]) => start % 1 !== 0 && duration % 1 !== 0
-                                ).length
+                                ).toArray().length
         if (!encodeGaps && this.#header.discontinuous) {
             Log.warn(
                 `Recording is discontinuous but either contains no data gaps or contains incompatible gaps ` +
@@ -581,7 +627,25 @@ export default class EdfEncoder implements FileFormatEncoder {
         return signalBuffer
     }
 
-    createHeader (properties?: Partial<EdfHeader>): EdfHeader {
+    createHeader (properties?: Partial<BiosignalHeaderRecord>) {
+        if (this.#locked) {
+            Log.error(`Cannot create header, header properties are locked.`, SCOPE)
+            return this.#edfHeader || safeObjectFrom({})
+        }
+        if (this.#header) {
+            Log.error(
+                `Cannot create header, current header property is not empty.` +
+                `Use the 'setHeader' method to change header attributes.`,
+                SCOPE
+            )
+            return this.#header
+        }
+        // Create a new header object with default values.
+        this.#header = new GenericBiosignalHeader('edf', 'Epicurrents EDF', 'Anonymous', 0, 1, 0, 0, [])
+        this.#updateHeader(properties)
+    }
+
+    createHeaderFromEdf (properties?: Partial<EdfHeader>): EdfHeader {
         if (this.#edfHeader) {
             Log.error(
                 `Cannot create header, current header property is not empty.` +
@@ -596,7 +660,7 @@ export default class EdfEncoder implements FileFormatEncoder {
             dataRecordCount: 0,
             /** Duration of each data record in seconds. */
             dataRecordDuration: 0,
-            /** Is the source signal discontinous. */
+            /** Is the source signal discontinuous. */
             discontinuous: false,
             /** How many bytes are occupied by the header record at the beginning of the file. */
             headerRecordBytes: 0,
@@ -611,7 +675,7 @@ export default class EdfEncoder implements FileFormatEncoder {
             signalCount: 0,
             /** EDF-specific signal information parsed from the header record. */
             signalInfo: [],
-        })
+        }) as EdfHeader
         this.#updateEdfHeader(properties)
         return this.#edfHeader!
     }
@@ -624,7 +688,7 @@ export default class EdfEncoder implements FileFormatEncoder {
         this.#footer.annotations = annotations
     }
 
-    setDataGaps (dataGaps: [number, number][]) {
+    setDataGaps (dataGaps: SignalDataGapMap) {
         if (this.#locked) {
             Log.error(`Cannot set data gaps, header properties are locked.`, SCOPE)
             return
@@ -645,7 +709,30 @@ export default class EdfEncoder implements FileFormatEncoder {
             Log.error(`Cannot set EDF header, header properties are locked.`, SCOPE)
             return
         }
+        if (!this.#edfHeader) {
+            Log.debug(`updateHeader called without a pre-existing header, creating a new one.`, SCOPE)
+            this.createHeaderFromEdf(header)
+            return
+        }
         this.#updateEdfHeader(header)
+    }
+
+    setHeader (properties?: Partial<BiosignalHeaderRecord>) {
+        if (this.#locked) {
+            Log.error(`Cannot set header, header properties are locked.`, SCOPE)
+            return this.#header || safeObjectFrom({})
+        }
+        if (this.#header) {
+            Log.error(
+                `Cannot set header, current header property is not empty.` +
+                `Use the 'updateHeader' method to change header attributes.`,
+                SCOPE
+            )
+            return this.#header
+        }
+        // Create a new header object with default values.
+        this.createHeader(properties)
+        return this.#header!
     }
 
     setFooter (footer: Partial<EdfFooter>) {
@@ -674,11 +761,6 @@ export default class EdfEncoder implements FileFormatEncoder {
     }
 
     updateEdfHeader (properties: Partial<EdfHeader>) {
-        if (!this.#edfHeader) {
-            Log.debug(`updateHeader called without a pre-existing header, creating a new one.`, SCOPE)
-            this.createHeader(properties)
-            return
-        }
         if (this.#locked) {
             Log.error(`Cannot update EDF header, header properties are locked.`, SCOPE)
             return
@@ -686,7 +768,7 @@ export default class EdfEncoder implements FileFormatEncoder {
         this.#updateEdfHeader(properties)
     }
 
-    async writeToArrayBuffer (anonymize = false): Promise<ArrayBuffer | null> {
+    async encode (anonymize = false): Promise<ArrayBuffer | null> {
         if (!this.#header) {
             Log.error(`Cannot write to ArrayBuffer, current header property is empty.`, SCOPE)
             return null

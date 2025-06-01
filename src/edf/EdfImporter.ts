@@ -1,5 +1,5 @@
 /**
- * Epicurrents EDF processer. This class contains the common methods used both by workerized and direct readers.
+ * Epicurrents EDF importer. This class contains the common methods used both by workerized and direct readers.
  * @package    epicurrents/edf-reader
  * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
@@ -8,7 +8,7 @@
 import {
     BiosignalCache,
     BiosignalMutex,
-    SignalFileReader,
+    GenericSignalReader,
 } from '@epicurrents/core'
 import {
     combineSignalParts,
@@ -34,7 +34,7 @@ import EdfDecoder from './EdfDecoder'
 import { Log } from 'scoped-event-log'
 import { isAnnotationSignal } from '#util'
 
-const SCOPE = 'EdfProcesser'
+const SCOPE = 'EdfImporter'
 
 const LOAD_DIRECTION_ALTERNATING: ReadDirection = 'alternate'
 const LOAD_DIRECTION_BACKWARD: ReadDirection = 'backward'
@@ -42,19 +42,19 @@ const LOAD_DIRECTION_FORWARD: ReadDirection = 'forward'
 /** Maximum time to wait for missing signals to me loaded, in milliseconds. */
 const AWAIT_SIGNALS_TIME = 5000
 
-export default class EdfProcesser extends SignalFileReader implements SignalDataReader {
+export default class EdfImporter extends GenericSignalReader implements SignalDataReader {
 
     protected _channels = [] as BiosignalChannel[]
     protected _decoder = null as EdfDecoder | null
     /** Parsed header of the EDF recording. */
-    protected _header = null as EdfHeader | null
+    protected _fileTypeHeader = null as EdfHeader | null
     /** A method to pass update messages through. */
     protected _updateCallback = null as ((update: { [prop: string]: unknown }) => void) | null
     /** Settings must be kept up-to-date with the main application. */
     SETTINGS: AppSettings
 
     constructor (settings: AppSettings) {
-        super()
+        super(Int16Array)
         this.SETTINGS = settings
     }
 
@@ -125,7 +125,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
      * @returns Success (true/false).
      */
     async cacheSignalsFromUrl (startFrom: number = 0) {
-        if (!this._header) {
+        if (!this._fileTypeHeader) {
             Log.error([`Could not cache signals.`, `Study parameters have not been set.`], SCOPE)
             return false
         }
@@ -134,7 +134,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             return false
         }
         // Must multiply size by two because of 16 bit int => 32 bit float conversion.
-        const totalSignalDataSize = this._dataUnitSize*this._header.dataRecordCount*2
+        const totalSignalDataSize = this._dataUnitSize*this._fileTypeHeader.dataRecordCount*2
         // Get an array of parts that are in the process of being cached.
         const cacheTargets = this._cacheProcesses.map(proc => proc.target)
         // If we're at the start of the recording and can cache it entirely, just do that.
@@ -267,7 +267,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
      * @returns Promise with signals and corrected start and end times.
      */
     async getSignalPart (start: number, end: number, unknownData = true, raw = false) : Promise<EdfSignalPart | null> {
-        if (!this._decoder || !this._header || !this._dataUnitSize || !this._dataUnitSize) {
+        if (!this._decoder || !this._fileTypeHeader || !this._dataUnitSize || !this._dataUnitSize) {
             Log.error("Cannot load file part, study has not been set up yet.", SCOPE)
             return null
         }
@@ -275,7 +275,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             Log.error(`Cannot load file part before signal cache has been initiated.`, SCOPE)
             return null
         }
-        if (!this._header.dataRecordDuration) {
+        if (!this._fileTypeHeader.dataRecordDuration) {
             Log.error("Cannot load file part, recording data record duration is zero.", SCOPE)
             return null
         }
@@ -300,7 +300,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             Log.error(`File loader couldn't load EDF part between ${fileStart}-${fileEnd}.`, SCOPE)
             return { signals: [], start: start, end: end }
         }
-        const recordsPerSecond = 1/this._header.dataRecordDuration
+        const recordsPerSecond = 1/this._fileTypeHeader.dataRecordDuration
         // This block is meant to catch possible errors in EdfDecoder and signal interpolation.
         try {
             // Slice a part of the file to process.
@@ -325,11 +325,11 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             // Byte offset is always 0, as we slice the data to start from the correct position.
             // Add up all data gaps until this point.
             const edfData = this._decoder.decodeData(
-                                    this._header,
+                                    this._fileTypeHeader,
                                     chunkBuffer,
                                     0,
                                     (start - priorGaps)*recordsPerSecond,
-                                    filePart.dataLength/this._header.dataRecordDuration,
+                                    filePart.dataLength/this._fileTypeHeader.dataRecordDuration,
                                     priorGaps,
                                     raw
                                 )
@@ -342,10 +342,10 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             }
             // Cache possible new annotations.
             if (edfData.annotations.length) {
-                this.cacheNewAnnotations(...edfData.annotations)
+                this.addNewAnnotations(...edfData.annotations)
             }
             if (edfData.dataGaps.size) {
-                this.cacheNewDataGaps(edfData.dataGaps)
+                this.addNewDataGaps(edfData.dataGaps)
                 if (unknownData) {
                     // Include new gaps to end time.
                     let total = 0
@@ -358,8 +358,8 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             // Construct a cache object to return the signal data in.
             const cacheSignals = [] as SignalCachePart["signals"]
             for (let i=0; i<edfData.signals.length; i++) {
-                const sigSr = this._header.signalInfo[i].sampleCount*recordsPerSecond
-                const isAnnotation = isAnnotationSignal(this._header.reserved, this._header.signalInfo[i])
+                const sigSr = this._fileTypeHeader.signalInfo[i].sampleCount*recordsPerSecond
+                const isAnnotation = isAnnotationSignal(this._fileTypeHeader.reserved, this._fileTypeHeader.signalInfo[i])
                                      ? true : false
                 cacheSignals.push({
                     data: isAnnotation ? new Float32Array() : new Float32Array(edfData.signals[i]),
@@ -380,7 +380,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
     }
 
     async getSignals (range: number[], config?: ConfigChannelFilter) {
-        if (!this._header || !this._cache) {
+        if (!this._fileTypeHeader || !this._cache) {
             Log.error("Cannot load signals, signal cache has not been set up yet.", SCOPE)
             return null
         }
@@ -526,7 +526,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
      * @returns Range as { start: number, end: number } measured in seconds or NUMERIC_ERROR_VALUE if an error occurred.
      */
     async getSignalUpdatedRange () {
-        if (!this._header || !this._cache) {
+        if (!this._fileTypeHeader || !this._cache) {
             return { start: NUMERIC_ERROR_VALUE, end: NUMERIC_ERROR_VALUE }
         }
         const ranges = this._cache.outputSignalUpdatedRanges
@@ -579,7 +579,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
      * @returns Index of the next data record to load or NUMERIC_ERROR_VALUE if an error occurred.
      */
     async readAndCachePart (start: number, process?: SignalCacheProcess) {
-        if (!this._header || !this._cache) {
+        if (!this._fileTypeHeader || !this._cache) {
             Log.debug(`Could not load and cache part, recording or cache was not set up.`, SCOPE)
             return NUMERIC_ERROR_VALUE
         }
@@ -593,7 +593,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         )
         const startRecord = start // this.timeToDataRecordIndex(start)
         const finalRecord = process ? process.target.end/this._dataUnitDuration
-                                    : this._header.dataRecordCount
+                                    : this._fileTypeHeader.dataRecordCount
         let nextRecord = Math.min(
             startRecord + dataChunkRecords,
             finalRecord
@@ -610,7 +610,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             // Check that some signals were loaded and that the process has not been cancelled/cache released while
             // waiting for the signal data.
             if (newSignals?.signals.length && (!process || process.continue) && this._cache) {
-                if (this._header.discontinuous) {
+                if (this._fileTypeHeader.discontinuous) {
                     // Convert start and end time to exclude gaps.
                     newSignals.start = this._recordingTimeToCacheTime(newSignals.start)
                     newSignals.end = this._recordingTimeToCacheTime(newSignals.end)
@@ -765,7 +765,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             Log.warn(`Tried to re-initialize already initialized EDF signal cache.`, SCOPE)
             return this._mutex.propertiesForCoupling
         }
-        if (!this._header) {
+        if (!this._fileTypeHeader) {
             Log.error([`Cannot initialize mutex cache.`, `Study parameters have not been set.`], SCOPE)
             return null
         }
@@ -775,11 +775,11 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             end: 0,
             signals: []
         } as SignalCachePart
-        for (const sig of this._header.signalInfo) {
+        for (const sig of this._fileTypeHeader.signalInfo) {
             cacheProps.signals.push({
                 data: new Float32Array(),
-                samplingRate: isAnnotationSignal(this._header.reserved, sig) ? 0 // Don't cache annotation data.
-                              : sig.sampleCount/this._header.dataRecordDuration
+                samplingRate: isAnnotationSignal(this._fileTypeHeader.reserved, sig) ? 0 // Don't cache annotation data.
+                              : sig.sampleCount/this._fileTypeHeader.dataRecordDuration
             })
         }
         this._mutex = new BiosignalMutex()
@@ -809,7 +809,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
         }
         this._decoder = new EdfDecoder(undefined, edfHeader)
         // Store the header for later use.
-        this._header = edfHeader
+        this._fileTypeHeader = edfHeader
         // Initialize file loader.
         this.cacheEdfInfo(edfHeader, header.dataUnitSize)
         this._url = url
@@ -818,7 +818,7 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
             this._cacheProcesses[i].continue = false
             this._cacheProcesses.splice(i, 1)
         }
-        if (this._header.discontinuous) {
+        if (this._fileTypeHeader.discontinuous) {
             // We need to fetch the true file duration from the last data record.
             const filePart = await this.readPartFromFile((this._dataUnitCount - 1)*this._dataUnitDuration, 1)
             if (filePart) {
@@ -836,13 +836,13 @@ export default class EdfProcesser extends SignalFileReader implements SignalData
                 // Remove possible added annotations and data gaps.
                 this._annotations.clear()
                 this._dataGaps.clear()
-                this._totalRecordingLength = (edfData?.dataGaps.get(0) || 0) + this._header.dataRecordDuration
+                this._totalRecordingLength = (edfData?.dataGaps.get(0) || 0) + this._fileTypeHeader.dataRecordDuration
             }
         }
         this._totalRecordingLength = Math.max(
             this._totalRecordingLength, header.dataUnitCount*header.dataUnitDuration
         )
-        this._totalDataLength = this._header.dataRecordCount*this._header.dataRecordDuration
+        this._totalDataLength = this._fileTypeHeader.dataRecordCount*this._fileTypeHeader.dataRecordDuration
         this._dataUnitSize = header.dataUnitSize
         // Construct SharedArrayBuffers and rebuild recording data block structure.
         this._dataBlocks = []

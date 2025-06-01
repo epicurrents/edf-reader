@@ -2,7 +2,7 @@ import {
     EdfDecoder,
     EdfEncoder,
     EdfHeaderRecord,
-    EdfProcesser,
+    EdfImporter,
     EdfReader,
     EdfWorkerSubstitute,
 } from './edf'
@@ -11,7 +11,7 @@ export {
     EdfDecoder,
     EdfEncoder,
     EdfHeaderRecord,
-    EdfProcesser,
+    EdfImporter,
     EdfReader,
     EdfWorkerSubstitute,
 }
