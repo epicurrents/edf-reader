@@ -15,14 +15,14 @@ import type {
     ConfigChannelFilter,
     WorkerMessage,
 } from '@epicurrents/core/dist/types'
-import EdfImporter from '#edf/EdfImporter'
+import EdfReader from '#edf/EdfReader'
 import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 
 const SCOPE = "EdfWorker"
 
-const READER = new EdfImporter(SETTINGS)
+const READER = new EdfReader(SETTINGS)
 
 onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {

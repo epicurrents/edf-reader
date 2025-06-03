@@ -680,6 +680,42 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         return this.#edfHeader!
     }
 
+    async encode (anonymize = false): Promise<ArrayBuffer | null> {
+        if (!this.#header) {
+            Log.error(`Cannot write to ArrayBuffer, current header property is empty.`, SCOPE)
+            return null
+        }
+        this.#locked = true // Lock the header properties to prevent further changes.
+        const footerBuffer = await this.#writeFooterBuffer(anonymize)
+        if (!footerBuffer) {
+            Log.error(`Failed to write footer buffer.`, SCOPE)
+            return null
+        }
+        Log.debug(`Footer buffer written, size: ${footerBuffer.byteLength} bytes.`, SCOPE)
+        const headerBuffer = await this.#writeHeaderBuffer(anonymize)
+        if (!headerBuffer) {
+            Log.error(`Failed to write header buffer.`, SCOPE)
+            return null
+        }
+        Log.debug(`Header buffer written, size: ${headerBuffer.byteLength} bytes.`, SCOPE)
+        const signalBuffer = await this.#writeSignalBuffer()
+        if (!signalBuffer) {
+            Log.error(`Failed to write signal buffer.`, SCOPE)
+            return null
+        }
+        Log.debug(`Signal buffer written, size: ${signalBuffer.byteLength} bytes.`, SCOPE)
+        // Combine all buffers into a single ArrayBuffer.
+        const totalSize = headerBuffer.byteLength + signalBuffer.byteLength + footerBuffer.byteLength
+        const combinedBuffer = new ArrayBuffer(totalSize)
+        const combinedView = new Uint8Array(combinedBuffer)
+        combinedView.set(new Uint8Array(headerBuffer), 0)
+        combinedView.set(new Uint8Array(signalBuffer), headerBuffer.byteLength)
+        combinedView.set(new Uint8Array(footerBuffer), headerBuffer.byteLength + signalBuffer.byteLength)
+        Log.debug(`Combined EDF buffer written, total size: ${combinedBuffer.byteLength} bytes.`, SCOPE)
+        this.#locked = false // Unlock the header properties after writing.
+        return combinedBuffer
+    }
+
     setAnnotations (annotations: AnnotationTemplate[]) {
         if (this.#locked) {
             Log.error(`Cannot set annotations, header properties are locked.`, SCOPE)
@@ -694,6 +730,14 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             return
         }
         this.#footer.dataGaps = dataGaps
+    }
+
+    setEdfSignals (signals: Int16Array[]) {
+        if (this.#locked) {
+            Log.error(`Cannot set digital signals, header properties are locked.`, SCOPE)
+            return
+        }
+        this.#digitalSignals = [...signals]
     }
 
     setEdfSignalBuffer (signalBuffer: Int16Array) {
@@ -766,41 +810,5 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             return
         }
         this.#updateEdfHeader(properties)
-    }
-
-    async encode (anonymize = false): Promise<ArrayBuffer | null> {
-        if (!this.#header) {
-            Log.error(`Cannot write to ArrayBuffer, current header property is empty.`, SCOPE)
-            return null
-        }
-        this.#locked = true // Lock the header properties to prevent further changes.
-        const footerBuffer = await this.#writeFooterBuffer(anonymize)
-        if (!footerBuffer) {
-            Log.error(`Failed to write footer buffer.`, SCOPE)
-            return null
-        }
-        Log.debug(`Footer buffer written, size: ${footerBuffer.byteLength} bytes.`, SCOPE)
-        const headerBuffer = await this.#writeHeaderBuffer(anonymize)
-        if (!headerBuffer) {
-            Log.error(`Failed to write header buffer.`, SCOPE)
-            return null
-        }
-        Log.debug(`Header buffer written, size: ${headerBuffer.byteLength} bytes.`, SCOPE)
-        const signalBuffer = await this.#writeSignalBuffer()
-        if (!signalBuffer) {
-            Log.error(`Failed to write signal buffer.`, SCOPE)
-            return null
-        }
-        Log.debug(`Signal buffer written, size: ${signalBuffer.byteLength} bytes.`, SCOPE)
-        // Combine all buffers into a single ArrayBuffer.
-        const totalSize = headerBuffer.byteLength + signalBuffer.byteLength + footerBuffer.byteLength
-        const combinedBuffer = new ArrayBuffer(totalSize)
-        const combinedView = new Uint8Array(combinedBuffer)
-        combinedView.set(new Uint8Array(headerBuffer), 0)
-        combinedView.set(new Uint8Array(signalBuffer), headerBuffer.byteLength)
-        combinedView.set(new Uint8Array(footerBuffer), headerBuffer.byteLength + signalBuffer.byteLength)
-        Log.debug(`Combined EDF buffer written, total size: ${combinedBuffer.byteLength} bytes.`, SCOPE)
-        this.#locked = false // Unlock the header properties after writing.
-        return combinedBuffer
     }
 }

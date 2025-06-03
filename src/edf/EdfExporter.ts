@@ -1,17 +1,23 @@
 /**
  * Epicurrents EDF exporter.
  * @package    epicurrents/edf-reader
- * @copyright  2025 Sampsa Lohi
+ * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
  */
 
-import { GenericSignalWriter } from '@epicurrents/core'
-import { SignalDataWriter } from '@epicurrents/core/dist/types'
-import EdfEncoder from './EdfEncoder'
+import { GenericFileWriter } from '@epicurrents/core'
+import type {
+    FileFormatWriter,
+} from '@epicurrents/core/dist/types'
+//import { Log } from 'scoped-event-log'
+import EdfWriter from './EdfWriter'
 
-export default class EdfExporter extends GenericSignalWriter implements SignalDataWriter {
+//const SCOPE = 'EdfExporter'
+
+export default class EdfExporter extends GenericFileWriter implements FileFormatWriter {
+    protected _processor = new EdfWriter()
 
     constructor () {
-        super(new EdfEncoder('eeg'))
+        super('EdfExporter', 'edf', 'File writer for the Epicurrents EDF format.')
     }
 }

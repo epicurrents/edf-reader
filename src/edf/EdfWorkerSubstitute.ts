@@ -5,7 +5,7 @@
  * @license    Apache-2.0
  */
 
-import EdfImporter from './EdfImporter'
+import EdfReader from './EdfReader'
 import { ServiceWorkerSubstitute } from '@epicurrents/core'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 import {
@@ -20,13 +20,13 @@ import { type EdfHeader } from '#types'
 const SCOPE = 'EdfWorkerSubstitute'
 
 export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
-    protected _reader: EdfImporter
+    protected _reader: EdfReader
     constructor () {
         super()
         if (!window.__EPICURRENTS__?.RUNTIME) {
             Log.error(`Reference to main application was not found!`, SCOPE)
         }
-        this._reader = new EdfImporter(window.__EPICURRENTS__.RUNTIME.SETTINGS)
+        this._reader = new EdfReader(window.__EPICURRENTS__.RUNTIME.SETTINGS)
         const updateCallback = (update: { [prop: string]: unknown }) => {
             if (update.action === 'cache-signals') {
                 this.returnMessage(update as WorkerMessage['data'])
@@ -136,7 +136,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             case 'shutdown':
             case 'decommission': {
                 await this._reader.destroy()
-                this._reader = null as unknown as EdfImporter
+                this._reader = null as unknown as EdfReader
                 super.shutdown()
                 return this.returnSuccess(message)
             }
