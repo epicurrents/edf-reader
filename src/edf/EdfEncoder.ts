@@ -15,11 +15,11 @@ import type {
     AnnotationTemplate,
     BiosignalHeaderRecord,
     BiosignalHeaderSignal,
+    SignalDataEncoder,
     SignalDataGapMap,
 } from '@epicurrents/core/dist/types'
 import { safeObjectFrom } from '@epicurrents/core/dist/util'
 import { Log } from 'scoped-event-log'
-import { SignalDataEncoder } from '@epicurrents/core/dist/types/reader'
 import { GenericAsset, GenericBiosignalHeader } from '@epicurrents/core'
 
 const SCOPE = 'EdfEncoder'
