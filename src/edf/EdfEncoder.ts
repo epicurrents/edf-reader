@@ -16,7 +16,7 @@ import type {
     BiosignalHeaderRecord,
     BiosignalHeaderSignal,
     SignalDataEncoder,
-    SignalDataGapMap,
+    SignalInterruptionMap,
 } from '@epicurrents/core/dist/types'
 import { safeObjectFrom } from '@epicurrents/core/dist/util'
 import { Log } from 'scoped-event-log'
@@ -39,7 +39,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
     #footer = safeObjectFrom({
         annotations: [],
         channels: [],
-        dataGaps: [],
+        interruptions: [],
         modality: 'eeg',
         recordingDate: null,
         version: '1.0',
@@ -166,7 +166,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
                 ? this.#header.recordingStartTime.toISOString()
                 : '2000-01-01T00:00:00.000Z' // Default date.
             this.#footer.annotations = this.#header.annotations || []
-            this.#footer.dataGaps = this.#header.dataGaps || new Map()
+            this.#footer.interruptions = this.#header.interruptions || new Map()
         }
         // Update the channels in the footer based on the included signals.
         this.#footer.channels = []
@@ -205,7 +205,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
                 )
             }
             this.#header.annotations = properties?.annotations || this.#header.annotations || []
-            this.#header.dataGaps = properties?.dataGaps || this.#header.dataGaps || new Map()
+            this.#header.interruptions = properties?.interruptions || this.#header.interruptions || new Map()
             this.#header.dataDuration = properties?.dataDuration || this.#header.dataDuration || 0
             this.#header.dataUnitCount = properties?.dataUnitCount || this.#header.dataUnitCount || 0
             this.#header.dataUnitDuration = properties?.dataUnitDuration || this.#header.dataUnitDuration || 1
@@ -475,18 +475,18 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         const startTime = Date.now()
         Log.debug(`Writing signal buffer for ${includedSignals.size} signals.`, SCOPE)
         // Check if we should encode timestamps into the EDF+ annotations signal.
-        // Since we use a fixed record duration of 1 second, we can only encode gaps with a starting time and duration
-        // of full second(s).
-        // If the recording does not contain gaps or we cannot encode them, produce a normal EDF file.
-        const encodeGaps = this.#header.discontinuous
-                           && this.#footer.dataGaps.size
-                           && !this.#footer.dataGaps.entries().filter(
+        // Since we use a fixed record duration of 1 second, we can only encode interruptions with a starting time and
+        // duration in full second(s).
+        // If the recording does not contain interruptions or we cannot encode them, produce a normal EDF file.
+        const encodeInterruptions = this.#header.discontinuous
+                           && this.#footer.interruptions.size
+                           && !this.#footer.interruptions.entries().filter(
                                     ([start, duration]) => start % 1 !== 0 && duration % 1 !== 0
                                 ).toArray().length
-        if (!encodeGaps && this.#header.discontinuous) {
+        if (!encodeInterruptions && this.#header.discontinuous) {
             Log.warn(
-                `Recording is discontinuous but either contains no data gaps or contains incompatible gaps ` +
-                `(only gaps with a start and duration of full seconds are supported). ` +
+                `Recording is discontinuous but either contains no interruptions or they are incompatible ` +
+                `(only interruptions with a start and duration in full seconds are supported). ` +
                 `Producing a normal EDF file instead.`,
                 SCOPE
             )
@@ -724,12 +724,12 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         this.#footer.annotations = annotations
     }
 
-    setDataGaps (dataGaps: SignalDataGapMap) {
+    setInterruptions (interruptions: SignalInterruptionMap) {
         if (this.#locked) {
-            Log.error(`Cannot set data gaps, header properties are locked.`, SCOPE)
+            Log.error(`Cannot set interruptions, header properties are locked.`, SCOPE)
             return
         }
-        this.#footer.dataGaps = dataGaps
+        this.#footer.interruptions = interruptions
     }
 
     setEdfSignals (signals: Int16Array[]) {

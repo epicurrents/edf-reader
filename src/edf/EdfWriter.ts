@@ -6,7 +6,7 @@
  */
 
 import { GenericBiosignalHeader, GenericSignalWriter } from '@epicurrents/core'
-import type { SignalDataGapMap, SignalDataWriter, TypedNumberArray } from '@epicurrents/core/dist/types'
+import type { SignalInterruptionMap, SignalDataWriter, TypedNumberArray } from '@epicurrents/core/dist/types'
 import EdfEncoder from './EdfEncoder'
 import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'
@@ -27,9 +27,9 @@ export default class EdfWriter extends GenericSignalWriter implements SignalData
         super.setBiosignalHeader(header)
     }
 
-    setDataGaps (dataGaps: SignalDataGapMap): void {
-        this._encoder.setDataGaps(dataGaps)
-        super.setDataGaps(dataGaps)
+    setInterruptions (interruptions: SignalInterruptionMap): void {
+        this._encoder.setInterruptions(interruptions)
+        super.setInterruptions(interruptions)
     }
 
     setFileTypeHeader (header: unknown): void {

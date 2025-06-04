@@ -17,16 +17,16 @@ import {
     sleep,
     MB_BYTES,
 } from '@epicurrents/core/dist/util'
-import {
-    type AppSettings,
-    type BiosignalChannel,
-    type BiosignalHeaderRecord,
-    type ConfigChannelFilter,
-    type ReadDirection,
-    type SignalCachePart,
-    type SignalCacheProcess,
-    type SignalDataReader,
-    type SignalFilePart,
+import type {
+    AppSettings,
+    BiosignalChannel,
+    BiosignalHeaderRecord,
+    ConfigChannelFilter,
+    ReadDirection,
+    SignalCachePart,
+    SignalCacheProcess,
+    SignalDataReader,
+    SignalFilePart,
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader, type EdfSignalPart } from '#types'
 import IOMutex, { type MutexExportProperties } from 'asymmetric-io-mutex'
@@ -262,7 +262,7 @@ export default class EdfReader extends GenericSignalReader implements SignalData
      * Load part of raw recording signals.
      * @param start - Start time as seconds.
      * @param end - End time as seconds.
-     * @param unknownData - Is the signal data unknown, or especially, can it contain uknown gaps. If true, final end time is corrected to contain new gaps (default true).
+     * @param unknownData - Is the signal data unknown, or especially, can it contain uknown interruptions. If true, final end time is corrected to contain new interruptions (default true).
      * @param raw - Return raw In16 signals instead of physical signals (default false).
      * @returns Promise with signals and corrected start and end times.
      */
@@ -290,11 +290,11 @@ export default class EdfReader extends GenericSignalReader implements SignalData
         if (end > this._totalRecordingLength) {
             end = this._totalRecordingLength
         }
-        const priorGaps = start > 0 ? this._getGapTimeBetween(0, start) : 0
-        const innerGaps = this._getGapTimeBetween(start, end)
+        const priorGaps = start > 0 ? this._getInterruptionTimeBetween(0, start) : 0
+        const innerGaps = this._getInterruptionTimeBetween(start, end)
         const fileStart = start - priorGaps
         const fileEnd = end - priorGaps - innerGaps
-        // readPartFromFile performs its own gap detection.
+        // readPartFromFile performs its own interruption detection.
         const filePart = await this.readPartFromFile(start, end - start)
         if (!filePart) {
             Log.error(`File loader couldn't load EDF part between ${fileStart}-${fileEnd}.`, SCOPE)
@@ -323,7 +323,7 @@ export default class EdfReader extends GenericSignalReader implements SignalData
             const chunk = filePart.data.slice(startPos, Math.min(endPos, filePart.data.size))
             const chunkBuffer = await chunk.arrayBuffer()
             // Byte offset is always 0, as we slice the data to start from the correct position.
-            // Add up all data gaps until this point.
+            // Add up all interruptions until this point.
             const edfData = this._decoder.decodeData(
                                     this._fileTypeHeader,
                                     chunkBuffer,
@@ -344,15 +344,15 @@ export default class EdfReader extends GenericSignalReader implements SignalData
             if (edfData.annotations.length) {
                 this.addNewAnnotations(...edfData.annotations)
             }
-            if (edfData.dataGaps.size) {
-                this.addNewDataGaps(edfData.dataGaps)
+            if (edfData.interruptions.size) {
+                this.addNewInterruptions(edfData.interruptions)
                 if (unknownData) {
-                    // Include new gaps to end time.
+                    // Include new interruptions to end time.
                     let total = 0
-                    for (const gap of edfData.dataGaps.values()) {
-                        total += gap
+                    for (const intr of edfData.interruptions.values()) {
+                        total += intr
                     }
-                    end += total - innerGaps // Total minus already known gaps.
+                    end += total - innerGaps // Total minus already known interruptions.
                 }
             }
             // Construct a cache object to return the signal data in.
@@ -371,7 +371,7 @@ export default class EdfReader extends GenericSignalReader implements SignalData
                 start: start,
                 end: end,
                 annotations: edfData.annotations,
-                dataGaps: edfData.dataGaps,
+                interruptions: edfData.interruptions,
             }
         } catch (e) {
             Log.error(`Failed to load signal part between ${start} and ${end}!`, SCOPE, e as Error)
@@ -469,10 +469,10 @@ export default class EdfReader extends GenericSignalReader implements SignalData
             end: requestedSigs.end,
             signals: [],
         } as SignalCachePart
-        // Find amount of gap time before and within the range.
-        const dataGaps = this.getDataGaps(range)
-        const priorGapsTotal = range[0] > 0 ? this._getGapTimeBetween(0, range[0]) : 0
-        const innerGapsTotal = this._getGapTimeBetween(range[0], range[1])
+        // Find amount of interruption time before and within the range.
+        const interruptions = this.getInterruptions(range)
+        const priorGapsTotal = range[0] > 0 ? this._getInterruptionTimeBetween(0, range[0]) : 0
+        const innerGapsTotal = this._getInterruptionTimeBetween(range[0], range[1])
         const rangeStart = range[0] - priorGapsTotal
         const rangeEnd = range[1] - priorGapsTotal - innerGapsTotal
         for (let i=0; i<requestedSigs.signals.length; i++) {
@@ -483,7 +483,7 @@ export default class EdfReader extends GenericSignalReader implements SignalData
                 Math.round((range[1] - range[0])*requestedSigs.signals[i].samplingRate)
             ).fill(0.0)
             if (rangeStart === rangeEnd) {
-                // The whole range is just gap space.
+                // The whole range is interruption time.
                 responseSigs.signals.push({
                     data: signalForRange,
                     samplingRate: requestedSigs.signals[i].samplingRate,
@@ -493,10 +493,10 @@ export default class EdfReader extends GenericSignalReader implements SignalData
             const startSignalIndex = Math.round((rangeStart - requestedSigs.start)*requestedSigs.signals[i].samplingRate)
             const endSignalIndex = Math.round((rangeEnd - requestedSigs.start)*requestedSigs.signals[i].samplingRate)
             signalForRange.set(requestedSigs.signals[i].data.slice(startSignalIndex, endSignalIndex))
-            for (const gap of dataGaps) {
-                const startPos = Math.round((gap.start - range[0])*requestedSigs.signals[i].samplingRate)
+            for (const intr of interruptions) {
+                const startPos = Math.round((intr.start - range[0])*requestedSigs.signals[i].samplingRate)
                 const endPos = Math.min(
-                    startPos + Math.round(gap.duration*requestedSigs.signals[i].samplingRate),
+                    startPos + Math.round(intr.duration*requestedSigs.signals[i].samplingRate),
                     startPos + signalForRange.length
                 )
                 // Move the existing array members upward.
@@ -611,7 +611,7 @@ export default class EdfReader extends GenericSignalReader implements SignalData
             // waiting for the signal data.
             if (newSignals?.signals.length && (!process || process.continue) && this._cache) {
                 if (this._fileTypeHeader.discontinuous) {
-                    // Convert start and end time to exclude gaps.
+                    // Convert start and end time to exclude interruptions.
                     newSignals.start = this._recordingTimeToCacheTime(newSignals.start)
                     newSignals.end = this._recordingTimeToCacheTime(newSignals.end)
                 }
@@ -625,13 +625,13 @@ export default class EdfReader extends GenericSignalReader implements SignalData
                     Log.error(`Inserting new signals to cache failed.`, SCOPE)
                     return NUMERIC_ERROR_VALUE
                 }
-                // Report signal cache progress and send new annotation and data gap information.
+                // Report signal cache progress and send new annotation and interruption information.
                 if (this._updateCallback) {
                     this._updateCallback({
                         action: 'cache-signals',
                         annotations: this.getAnnotations([startTime, endTime]),
-                        // Data gap information can change as the file is loaded, they must always be reset.
-                        dataGaps: this.getDataGaps(undefined, true),
+                        // Interruption information can change as the file is loaded, they must always be reset.
+                        interruptions: this.getInterruptions(undefined, true),
                         range: [updated.start, updated.end],
                         success: true,
                     })
@@ -824,7 +824,7 @@ export default class EdfReader extends GenericSignalReader implements SignalData
             if (filePart) {
                 const chunkBuffer = await filePart.data.arrayBuffer()
                 // Byte offset is always 0, as we slice the data to start from the correct position.
-                // Add up all data gaps until this point.
+                // Add up all interruptions until this point.
                 const edfData = this._decoder.decodeData(
                                     edfHeader,
                                     chunkBuffer,
@@ -833,10 +833,10 @@ export default class EdfReader extends GenericSignalReader implements SignalData
                                     filePart.dataLength/this._dataUnitDuration,
                                     0
                                 )
-                // Remove possible added annotations and data gaps.
+                // Remove possible added annotations and interruptions.
                 this._annotations.clear()
-                this._dataGaps.clear()
-                this._totalRecordingLength = (edfData?.dataGaps.get(0) || 0) + this._fileTypeHeader.dataRecordDuration
+                this._interruptions.clear()
+                this._totalRecordingLength = (edfData?.interruptions.get(0) || 0) + this._fileTypeHeader.dataRecordDuration
             }
         }
         this._totalRecordingLength = Math.max(

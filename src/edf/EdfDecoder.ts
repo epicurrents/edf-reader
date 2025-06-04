@@ -18,10 +18,10 @@ import {
     safeObjectFrom ,
 } from '@epicurrents/core/dist/util'
 import EdfHeaderRecord from '#edf/EdfHeaderRecord'
-import {
-    type AnnotationTemplate,
-    type FileDecoder,
-    type SignalDataGapMap,
+import type {
+    AnnotationTemplate,
+    FileDecoder,
+    SignalInterruptionMap,
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader, type EdfSignalInfo } from '#types'
 import { unpackArray, unpackString } from 'byte-data'
@@ -102,9 +102,9 @@ export default class EdfDecoder implements FileDecoder {
     * @param dataOffset - Byte size of the header or byte index of the record to start from (default is headerRecordSize from header).
     * @param startRecord - Record number at dataOffset (default 0).
     * @param range - Range of records to decode from buffer (optional, but required if a buffer is provided).
-    * @param priorOffset - Time offset of the prior data (i.e. total gap time before buffer start, optional, default 0).
+    * @param priorOffset - Time offset of the prior data (i.e. total interruption time before buffer start, optional, default 0).
     * @param returnRaw -Return the raw digital signals instead of physical signals (default false).
-    * @returns An object holding the decoded signals with possible annotations and data gaps, or null if an error occurred.
+    * @returns An object holding the decoded signals with possible annotations and data interruptions, or null if an error occurred.
     */
     decodeData (
         header: EdfHeader | null,
@@ -268,7 +268,7 @@ export default class EdfDecoder implements FileDecoder {
             rawSignals[i] = new Array(nDataRecords) as Array<number>[]
             physicalSignals[i] = new Array(nDataRecords) as Array<number>[]
         }
-        const dataGaps = new Map<number, number>() as SignalDataGapMap
+        const interruptions = new Map<number, number>() as SignalInterruptionMap
         let startCorrection = 0
         if (dataOffset === -1) {
             dataOffset = useHeaders.headerRecordBytes
@@ -287,13 +287,13 @@ export default class EdfDecoder implements FileDecoder {
                 if (annotationSignals.includes(i)) {
                     const parsed = getAnnotationFields(dataOffset, nBytes, recAnnotations || undefined)
                     const dataPos = (startRecord + r)*useHeaders.dataRecordDuration
-                    // Save possible discontinuity in signal data as data gap.
+                    // Save possible discontinuity in signal data as an interruption.
                     // Avoid floating point precision errors.
                     const equalToPrecision = floatsAreEqual(parsed.recordStart, expectedRecordStart, 16)
                     if (useHeaders.discontinuous && parsed.recordStart > expectedRecordStart && !equalToPrecision) {
-                        // We must use data time instead of recording time as gap start position because the data record
-                        // timestamp cannot always be trusted.
-                        dataGaps.set(dataPos, parsed.recordStart - expectedRecordStart)
+                        // We must use data time instead of recording time as interruption start position because the
+                        // data record timestamp cannot always be trusted.
+                        interruptions.set(dataPos, parsed.recordStart - expectedRecordStart)
                         priorOffset += parsed.recordStart - expectedRecordStart
                     } else if (parsed.recordStart < expectedRecordStart + startCorrection && !equalToPrecision) {
                         Log.warn(
@@ -357,22 +357,22 @@ export default class EdfDecoder implements FileDecoder {
                 returnRaw ? rawSignals : [],
                 returnRaw ? [] : physicalSignals,
                 annotations,
-                dataGaps,
+                interruptions,
                 this._dataFormat
             )
         } else {
-            // Add possible parsed annotations and data gaps.
+            // Add possible parsed annotations and interruptions.
             if (annotations.length) {
                 this._output?.addAnnotations(...annotations)
             }
-            if (dataGaps.size) {
-                this._output?.addDataGaps(dataGaps)
+            if (interruptions.size) {
+                this._output?.addInterruptions(interruptions)
             }
         }
         // If more than one record was requested, we need to concatenate the response signal for each channel from the set of decoded signal records.
         return {
             annotations: annotations,
-            dataGaps: dataGaps,
+            interruptions: interruptions,
             signals: returnRaw ? rawSignals.map((sigSet) => { return sigSet.flat() })
                                : physicalSignals.map((sigSet) => { return sigSet.flat() }),
         }

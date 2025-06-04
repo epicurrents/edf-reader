@@ -12,7 +12,7 @@ import type {
     ConfigReadSignals,
     SafeObject,
     SignalCachePart,
-    SignalDataGapMap,
+    SignalInterruptionMap,
 } from "@epicurrents/core/dist/types"
 
 /**
@@ -33,7 +33,7 @@ import type {
 export type AttachmentType = "audio" | "document" | "history" | "image" | "measurement" | "other" | "status" | "video"
 export type ConfigReadEdfHeader = ConfigReadHeader & Partial<ConfigReadSignals>
 /**
- * EDF footer contains metadata about the recording, such as annotations, data gaps, channel properties, and videos.
+ * EDF footer contains metadata about the recording, such as annotations, interruptions, channel properties, and videos.
  * It is an extension to the EDF header. It is meant to be read and parsed after the header and before the signal data.
  */
 export type EdfFooter = SafeObject & {
@@ -62,8 +62,8 @@ export type EdfFooter = SafeObject & {
      * This configuration only applies to the appropriate resource module, in this case the EEG module.
      */
     config: SafeObject
-    /** Data gaps in the recording. */
-    dataGaps: SignalDataGapMap
+    /** Interruptions in the recording. */
+    interruptions: SignalInterruptionMap
     /** Recording modality (in this case "eeg"). */
     modality: "eeg"
     /** Recording date as an ISO string or null if not known. */
@@ -216,7 +216,7 @@ export type EdfSignalInfo = SafeObject & {
  */
 export interface EdfSignalPart extends SignalCachePart {
     annotations?: AnnotationTemplate[]
-    dataGaps?: SignalDataGapMap
+    interruptions?: SignalInterruptionMap
 }
 
 /**

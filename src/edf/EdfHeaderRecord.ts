@@ -11,7 +11,7 @@ import {
     type AnnotationTemplate,
     type BiosignalFilters,
     type BiosignalHeaderSignal,
-    type SignalDataGapMap,
+    type SignalInterruptionMap,
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader } from '#types'
 import Log from 'scoped-event-log'
@@ -28,7 +28,7 @@ export default class EdfRecording extends GenericBiosignalHeader {
         rawSignals = [] as Array<number>[][],
         physicalSignals = [] as Array<number>[][],
         annotations = [] as AnnotationTemplate[],
-        dataGaps = new Map() as SignalDataGapMap,
+        interruptions = new Map() as SignalInterruptionMap,
         fileType = 'edf'
     ) {
         // Calculate record size.
@@ -57,7 +57,7 @@ export default class EdfRecording extends GenericBiosignalHeader {
             header.isPlus ? `${fileType}+` : fileType, header.localRecordingId, header.patientId,
             header.dataRecordCount, header.dataRecordDuration, dataRecordSize,
             header.signalCount, signalProps, header.recordingDate,
-            header.discontinuous, annotations, dataGaps
+            header.discontinuous, annotations, interruptions
         )
         this._header = header
         for (const sigSet of physicalSignals) {

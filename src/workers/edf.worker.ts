@@ -80,11 +80,11 @@ onmessage = async (message: WorkerMessage) => {
         try {
             const sigs = await getSignals(data.range, data.config)
             const annos = getAnnotations(data.range)
-            const gaps = getDataGaps(data.range)
+            const interruptions = getInterruptions(data.range)
             if (sigs) {
                 return returnSuccess({
                     annotations: annos,
-                    dataGaps: gaps,
+                    interruptions: interruptions,
                     range: message.data.range,
                     ...sigs
                 })
@@ -183,8 +183,8 @@ const getAnnotations = (range: number[]) => {
     return READER.getAnnotations(range)
 }
 
-const getDataGaps = (range: number[]) => {
-    return READER.getDataGaps(range)
+const getInterruptions = (range: number[]) => {
+    return READER.getInterruptions(range)
 }
 
 const getSignals = (range: number[], config?: ConfigChannelFilter) => {
