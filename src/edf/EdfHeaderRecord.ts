@@ -16,9 +16,9 @@ import {
 import { type EdfHeader } from '#types'
 import Log from 'scoped-event-log'
 
-const SCOPE = 'EdfHeader'
+const SCOPE = 'EdfHeaderRecord'
 
-export default class EdfRecording extends GenericBiosignalHeader {
+export default class EdfHeaderRecord extends GenericBiosignalHeader {
     private _header: EdfHeader
     private _physicalSignals = [] as Float32Array[][]
     private _rawSignals: Array<number>[][]
