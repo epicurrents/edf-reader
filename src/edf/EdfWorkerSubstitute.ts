@@ -48,10 +48,14 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                         ...message,
                         complete: success,
                     })
-                } catch (e) {
+                } catch (e: unknown) {
                     Log.error(
-                        `An error occurred while trying to cache signals, operation was aborted.`,
-                    SCOPE, e as Error)
+                        `An error occurred while trying to cache signals, operation was aborted: ${
+                            (e as Error).message
+                        }.`,
+                        SCOPE,
+                        e as Error
+                    )
                     return this.returnFailure(message)
                 }
             }
@@ -86,8 +90,8 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                     } else {
                         return this.returnFailure(message)
                     }
-                } catch (e) {
-                    Log.error(`Getting signals failed.`, SCOPE, e as Error)
+                } catch (e: unknown) {
+                    Log.error(`Getting signals failed: ${(e as Error).message}.`, SCOPE, e as Error)
                     return this.returnFailure(message)
                 }
             }

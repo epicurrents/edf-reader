@@ -430,7 +430,7 @@ export default class EdfDecoder implements FileDecoder {
             }
             Log.debug(`Data format is ${format}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse data format ${format} header field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse data format ${format} header field: ${(e as Error).message}.`, SCOPE, e as Error)
             return null
         }
         offset += 8
@@ -443,7 +443,7 @@ export default class EdfDecoder implements FileDecoder {
             header.patientId = patientId.trim()
             Log.debug(`Patient ID is ${header.patientId}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse patient ID ${format} header field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse patient ID ${format} header field: ${(e as Error).message}.`, SCOPE, e as Error)
         }
         offset += 80
         try {
@@ -455,7 +455,11 @@ export default class EdfDecoder implements FileDecoder {
             header.localRecordingId = localRecordingId.trim()
             Log.debug(`Local recording ID is ${header.localRecordingId}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse local recording ID ${format} header field!`, SCOPE, e as Error)
+            Log.error(
+                `Failed to parse local recording ID ${format} header field: ${(e as Error).message}.`,
+                SCOPE,
+                e as Error
+            )
         }
         offset += 80
         try {
@@ -496,7 +500,11 @@ export default class EdfDecoder implements FileDecoder {
             )
             Log.debug(`Starting datetime is ${header.recordingDate.toDateString()}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse starting date/time ${format} header field!`, SCOPE, e as Error)
+            Log.error(
+                `Failed to parse starting date/time ${format} header field: ${(e as Error).message}.`,
+                SCOPE,
+                e as Error
+            )
             offset += 16
         }
         try {
@@ -512,7 +520,7 @@ export default class EdfDecoder implements FileDecoder {
             Log.debug(`Header record size is ${header.headerRecordBytes} bytes.`, SCOPE)
         } catch (e: unknown) {
             // Number of bytes can be calculated manually as well.
-            Log.error(`Failed to parse ${format} header record size field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse ${format} header record size field: ${(e as Error).message}.`, SCOPE, e as Error)
         }
         offset += 8
         try {
@@ -534,7 +542,7 @@ export default class EdfDecoder implements FileDecoder {
                 }
             }
         } catch (e: unknown) {
-            Log.error(`Failed to parse reserved ${format} header field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse reserved ${format} header field: ${(e as Error).message}.`, SCOPE, e as Error)
         }
         offset += 44
         try {
@@ -553,7 +561,11 @@ export default class EdfDecoder implements FileDecoder {
             }
             Log.debug(`${header.dataRecordCount} data records in file.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse number of data records ${format} header field!`, SCOPE, e as Error)
+            Log.error(
+                `Failed to parse number of data records ${format} header field: ${(e as Error).message}.`,
+                SCOPE,
+                e as Error
+            )
             return null
         }
         offset += 8
@@ -572,7 +584,11 @@ export default class EdfDecoder implements FileDecoder {
             }
             Log.debug(`Data recordduration is ${header.dataRecordDuration} seconds.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse duration of data record ${format} header field!`, SCOPE, e as Error)
+            Log.error(
+                `Failed to parse duration of data record ${format} header field: ${(e as Error).message}.`,
+                SCOPE,
+                e as Error
+            )
             return null
         }
         offset += 8
@@ -592,7 +608,11 @@ export default class EdfDecoder implements FileDecoder {
                 Log.debug(`${header.signalCount} signals in file.`, SCOPE)
             }
         } catch (e: unknown) {
-            Log.error(`Failed to parse number of signals ${format} header field!`, SCOPE, e as Error)
+            Log.error(
+                `Failed to parse number of signals ${format} header field: ${(e as Error).message}.`,
+                SCOPE,
+                e as Error
+            )
             return null
         }
         offset += 4
@@ -620,7 +640,11 @@ export default class EdfDecoder implements FileDecoder {
                     }
                     allFields.push(nextField)
                 } catch (e: unknown) {
-                    Log.error(`Failed to parse signal info at index ${i} from ${format} header!`, SCOPE, e as Error)
+                    Log.error(
+                        `Failed to parse signal info at index ${i} from ${format} header: ${(e as Error).message}.`,
+                        SCOPE,
+                        e as Error
+                    )
                     return []
                 }
                 offset += sectionBytes

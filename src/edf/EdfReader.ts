@@ -108,8 +108,8 @@ export default class EdfReader extends GenericSignalReader implements SignalData
             try {
                 this._filePos = 0
                 this._loadNextPart()
-            } catch (e) {
-                Log.error(`Encountered an error when loading signal file.`, SCOPE, e as Error)
+            } catch (e: unknown) {
+                Log.error(`Encountered an error when loading signal file: ${(e as Error).message}.`, SCOPE, e as Error)
             }
         } else {
             Log.error(
@@ -373,8 +373,12 @@ export default class EdfReader extends GenericSignalReader implements SignalData
                 annotations: edfData.annotations,
                 interruptions: edfData.interruptions,
             }
-        } catch (e) {
-            Log.error(`Failed to load signal part between ${start} and ${end}!`, SCOPE, e as Error)
+        } catch (e: unknown) {
+            Log.error(
+                `Failed to load signal part between ${start} and ${end}: ${(e as Error).message}`,
+                SCOPE,
+                e as Error
+            )
             return null
         }
     }
@@ -406,8 +410,12 @@ export default class EdfReader extends GenericSignalReader implements SignalData
                 if (!requestedSigs) {
                     return null
                 }
-            } catch (e) {
-                Log.error(`Loading signals for range [${range[0]}, ${range[1]}] failed.`, SCOPE, e as Error)
+            } catch (e: unknown) {
+                Log.error(
+                    `Loading signals for range [${range[0]}, ${range[1]}] failed: ${(e as Error).message}.`,
+                    SCOPE,
+                    e as Error
+                )
                 return null
             }
         }
@@ -690,8 +698,8 @@ export default class EdfReader extends GenericSignalReader implements SignalData
                 }
             }
             return nextRecord
-        } catch (e) {
-            Log.error(`Failed to get signals`, SCOPE, e as Error)
+        } catch (e: unknown) {
+            Log.error(`Failed to get signals: ${(e as Error).message}.`, SCOPE, e as Error)
             return NUMERIC_ERROR_VALUE
         }
     }
@@ -723,10 +731,17 @@ export default class EdfReader extends GenericSignalReader implements SignalData
         } : async () => {
             // Fetch the data from the file URL.
             const headers = new Headers()
-            headers.set('range', `bytes=${dataStart}-${dataEnd - 1}`)
+            headers.set('Range', `bytes=${dataStart}-${dataEnd - 1}`)
+            headers.set('Accept-Encoding', 'identity')
             return await fetch(this._url, {
                 headers: headers,
-            }).then(response => response.blob()).then(blob => { return blob })
+            }).then(response => response.blob()).then(blob => {
+                if (blob instanceof File || (blob as File).lastModified) {
+                    // If the response is a File, it has been downloaded in full (this can happen in Firefox).
+                    return (blob as File).slice(dataStart, dataEnd)
+                }
+                return blob
+            })
         }
         const startTime = this._dataUnitIndexToTime(unitStart)
         const partLength = this._dataUnitIndexToTime(unitEnd - unitStart)

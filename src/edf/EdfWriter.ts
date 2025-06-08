@@ -61,8 +61,8 @@ export default class EdfWriter extends GenericSignalWriter implements SignalData
                 Log.error('Failed to write EDF recording to ArrayBuffer.', SCOPE)
             }
             return buffer
-        } catch (error) {
-            Log.error(`Error writing EDF recording: ${error}`, SCOPE)
+        } catch (e: unknown) {
+            Log.error(`Error writing EDF recording: ${(e as Error).message}.`, SCOPE)
             return null
         }
     }
@@ -77,8 +77,8 @@ export default class EdfWriter extends GenericSignalWriter implements SignalData
                 Log.error(`Failed to write EDF recording to file.`, SCOPE)
                 return null
             }
-        } catch (error) {
-            Log.error(`Error writing EDF recording to file: ${error}`, SCOPE)
+        } catch (e: unknown) {
+            Log.error(`Error writing EDF recording to file: ${(e as Error).message}.`, SCOPE)
             return null
         }
     }

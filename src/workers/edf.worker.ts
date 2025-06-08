@@ -52,9 +52,9 @@ onmessage = async (message: WorkerMessage) => {
         try {
             const success = await cacheSignalsFromUrl()
             return returnSuccess({ complete: success })
-        } catch (e) {
+        } catch (e: unknown) {
             Log.error(
-                `An error occurred while trying to cache signals, operation was aborted.`,
+                `An error occurred while trying to cache signals, operation was aborted: ${(e as Error).message}.`,
             SCOPE, e as Error)
         }
     } else if (action === 'get-signals') {
@@ -91,8 +91,8 @@ onmessage = async (message: WorkerMessage) => {
             } else {
                 return returnFailure(`Reader did not return any signals.`)
             }
-        } catch (e) {
-            return returnFailure(e as string)
+        } catch (e: unknown) {
+            return returnFailure((e as Error).message)
         }
     } else if (action === 'setup-cache') {
         if (message.data.useMemoryManager) {

@@ -131,7 +131,7 @@ export default class EdfImporter extends GenericFileReader implements SignalFile
             const fullHeader = file.slice(256, (edfHeader.signalCount + 1)*256)
             await this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
         } catch (e: unknown) {
-            Log.error(`${fileDesig} header parsing error:`, SCOPE, e as Error)
+            Log.error(`${fileDesig} header parsing error: ${(e as Error).message}.`, SCOPE, e as Error)
             return null
         }
         this._study.files.push(studyFile)
@@ -218,7 +218,7 @@ export default class EdfImporter extends GenericFileReader implements SignalFile
             })
             await this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
         } catch (e: unknown) {
-            Log.error(`${fileDesig} header parsing error:`, SCOPE, e as Error)
+            Log.error(`${fileDesig} header parsing error: ${(e as Error).message}.`, SCOPE, e as Error)
             return null
         }
         this._study.files.push(studyFile)
