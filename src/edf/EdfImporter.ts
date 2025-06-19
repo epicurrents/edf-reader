@@ -48,14 +48,19 @@ export default class EdfImporter extends GenericFileReader implements SignalFile
         const totalRecords = fullHeader.dataUnitCount
         const signals = []
         for (let i=0; i<fullHeader.signalCount; i++) {
-            const modality = config?.signals ? config.signals[i]?.modality : 'sig'
-            // Try to determine amplification from unit.
+            const label = fullHeader.getSignalLabel(i) || ''
             const unitLow = fullHeader.getSignalPhysicalUnit(i)?.toLowerCase()
+            const modality = config?.signals
+                           ? config.signals[i]?.modality
+                           // EDF Annotations are always a meta channel. Also treat channels without a unit as meta.
+                           : label.toLowerCase() === 'edf annotations' || !unitLow?.trim()
+                             ? 'meta'
+                             : 'signal'
+            // Try to determine amplification from unit.
             const scale = unitLow === 'uv' || unitLow === 'µv' ? 0
                         : unitLow === 'mv'
                             ? -3 : unitLow === 'v'
                                 ?  -6 : 0
-            const label = fullHeader.getSignalLabel(i) || ''
             // Try to determine record start.
             const sigData = {
                 label,
@@ -73,7 +78,7 @@ export default class EdfImporter extends GenericFileReader implements SignalFile
                 filter: fullHeader.getSignalPrefiltering(i) || '',
                 transducer: fullHeader.getSignalTransducerType(i) || '',
             } as EdfHeaderSignal
-            sigData.sampleCount = sigData.samplesPerRecord * totalRecords
+            sigData.sampleCount = sigData.samplesPerRecord*totalRecords
             // Check signal for validity.
             signals.push(sigData)
         }
