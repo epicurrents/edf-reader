@@ -67,7 +67,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                         range: number[]
                     },
                     {
-                        config: ['Object', 'undefined'],
+                        config: 'Object?',
                         range: ['Number', 'Number'],
                     },
                     true,
@@ -114,11 +114,13 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                         formatHeader: EdfHeader
                         header: BiosignalHeaderRecord
                         url: string
+                        authHeader?: string
                     },
                     {
                         formatHeader: 'Object',
                         header: 'Object',
                         url: 'String',
+                        authHeader: 'String?',
                     },
                     true,
                     this.returnMessage.bind(this)
@@ -126,7 +128,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 if (!data) {
                     return
                 }
-                const result = await this._reader.setupStudy(data.header, data.formatHeader, data.url)
+                const result = await this._reader.setupStudy(data.header, data.formatHeader, data.url, data.authHeader)
                 if (result) {
                     return this.returnSuccess({
                         ...message,

@@ -208,6 +208,9 @@ export default class EdfImporter extends GenericFileReader implements SignalFile
             // Load header part from the EDF file into the study.
             const headers = new Headers()
             headers.set('range', 'bytes=0-255')
+            if (config?.authHeader) {
+                headers.set('Authorization', config.authHeader)
+            }
             const mainHeader = await fetch(url, {
                 headers: headers,
             })
@@ -218,6 +221,9 @@ export default class EdfImporter extends GenericFileReader implements SignalFile
             }
             // Load full header including signal info.
             headers.set('range', `bytes=256-${(edfHeader.signalCount + 1)*256 - 1}`)
+            if (config?.authHeader) {
+                headers.set('Authorization', config.authHeader)
+            }
             const fullHeader = await fetch(url, {
                 headers: headers,
             })

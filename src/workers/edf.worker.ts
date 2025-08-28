@@ -70,7 +70,7 @@ onmessage = async (message: WorkerMessage) => {
                 range: number[]
             },
             {
-                config: ['Object', 'undefined'],
+                config: 'Object?',
                 range: ['Number', 'Number'],
             }
         )
@@ -137,17 +137,19 @@ onmessage = async (message: WorkerMessage) => {
                 formatHeader: EdfHeader
                 header: BiosignalHeaderRecord
                 url: string
+                authHeader?: string
             },
             {
                 formatHeader: 'Object',
                 header: 'Object',
                 url: 'String',
+                authHeader: 'String?',
             }
         )
         if (!data) {
             return returnFailure(`Validating commission props failed.`)
         }
-        if (await setupStudy(data.header, data.formatHeader, data.url)) {
+        if (await setupStudy(data.header, data.formatHeader, data.url, data.authHeader)) {
             return returnSuccess({
                 dataLength: READER.dataLength,
                 recordingLength: READER.totalLength,
@@ -200,6 +202,6 @@ const cacheSignalsFromUrl = (startFrom = 0) => {
     return READER.cacheSignalsFromUrl(startFrom)
 }
 
-const setupStudy = async (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string) => {
-    return READER.setupStudy(header, edfHeader, url)
+const setupStudy = async (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string, authHeader?: string) => {
+    return READER.setupStudy(header, edfHeader, url, authHeader)
 }

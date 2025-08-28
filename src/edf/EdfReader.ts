@@ -44,6 +44,8 @@ const AWAIT_SIGNALS_TIME = 5000
 
 export default class EdfReader extends GenericSignalReader implements SignalDataReader {
 
+    /** Authorization header to include in requests. */
+    protected _authHeader?: string
     protected _channels = [] as BiosignalChannel[]
     protected _decoder = null as EdfDecoder | null
     /** Parsed header of the EDF recording. */
@@ -733,6 +735,9 @@ export default class EdfReader extends GenericSignalReader implements SignalData
             const headers = new Headers()
             headers.set('Range', `bytes=${dataStart}-${dataEnd - 1}`)
             headers.set('Accept-Encoding', 'identity')
+            if (this._authHeader) {
+                headers.set('Authorization', this._authHeader)
+            }
             return await fetch(this._url, {
                 headers: headers,
             }).then(response => response.blob()).then(blob => {
@@ -813,8 +818,9 @@ export default class EdfReader extends GenericSignalReader implements SignalData
      * @param header - General biosignal header.
      * @param edfHeader - EDF format-specific header.
      * @param url - Source URL of the EDF data file.
+     * @param authHeader - Authorization header to include in the request - optional.
      */
-    async setupStudy (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string) {
+    async setupStudy (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string, authHeader?: string) {
         // Make sure there aren't any cached signals yet.
         if (this._mutex || this._fallbackCache) {
             Log.error(
@@ -828,6 +834,9 @@ export default class EdfReader extends GenericSignalReader implements SignalData
         // Initialize file loader.
         this.cacheEdfInfo(edfHeader, header.dataUnitSize)
         this._url = url
+        if (authHeader) {
+            this._authHeader = authHeader
+        }
         // Reset possible running cache processes.
         for (let i=0; i<this._cacheProcesses.length; i++) {
             this._cacheProcesses[i].continue = false
