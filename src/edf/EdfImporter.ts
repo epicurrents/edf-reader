@@ -105,7 +105,9 @@ export default class EdfImporter extends GenericFileReader implements SignalFile
             new URL('../workers/edf.worker', import.meta.url),
             { type: 'module' }
         )
-        Log.registerWorker(worker)
+        if (!getWorkerOverride) {
+            Log.registerWorker(worker)
+        }
         return worker
     }
 
