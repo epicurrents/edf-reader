@@ -5,16 +5,16 @@
  * @license    Apache-2.0
  */
 
-import { GenericFileWriter } from '@epicurrents/core'
+import { GenericStudyExporter } from '@epicurrents/core'
 import type {
-    FileFormatWriter,
+    FileFormatExporter,
 } from '@epicurrents/core/dist/types'
 //import { Log } from 'scoped-event-log'
 import EdfWriter from './EdfWriter'
 
 //const SCOPE = 'EdfExporter'
 
-export default class EdfExporter extends GenericFileWriter implements FileFormatWriter {
+export default class EdfExporter extends GenericStudyExporter implements FileFormatExporter {
     protected _processor = new EdfWriter()
 
     constructor () {

@@ -5,12 +5,12 @@
  * @license    Apache-2.0
  */
 
-import { GenericBiosignalHeader, GenericFileReader } from '@epicurrents/core'
+import { GenericBiosignalHeader, GenericStudyImporter } from '@epicurrents/core'
 import { safeObjectFrom, secondsToTimeString } from '@epicurrents/core/dist/util'
 import type {
     ConfigReadSignals,
     ConfigReadUrl,
-    SignalFileReader,
+    SignalStudyImporter,
     StudyContextFile,
     StudyFileContext,
 } from '@epicurrents/core/dist/types'
@@ -22,7 +22,7 @@ import Log from 'scoped-event-log'
 
 const SCOPE = 'EdfImporter'
 
-export default class EdfImporter extends GenericFileReader implements SignalFileReader {
+export default class EdfImporter extends GenericStudyImporter implements SignalStudyImporter {
     protected _decoder = new EdfDecoder()
     protected _useSAB: boolean
 
