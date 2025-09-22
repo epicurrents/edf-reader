@@ -28,14 +28,16 @@ export const extractSignalModality = (signal: EdfSignalInfo, labelMatchers?: Map
         ["eog", "eog"],
         ["ecg|ekg", "ekg"],
         ["eeg", "eeg"],
+        ["edf annotations", "annotation"],
     ]
+    // Add default matchers if not already present.
     for (const [defLabel, defType] of defaultMatchers) {
         if (!matchers.has(defLabel)) {
             matchers.set(defLabel, defType)
         }
     }
     for (const [matchLabel, matchType] of matchers) {
-        if (label.match(new RegExp(matchLabel))) {
+        if (label.match(new RegExp(matchLabel, 'i'))) {
             return matchType
         }
     }
@@ -62,7 +64,7 @@ export const headerToBiosignalHeader = (headers: EdfHeader) => {
                 name: s.label,
                 physicalUnit: s.physicalUnit,
                 prefiltering: parsePrefiltering(s.prefiltering),
-                sampleCount: s.sampleCount,
+                sampleCount: s.sampleCount*headers.dataRecordCount,
                 samplingRate: s.sampleCount/headers.dataRecordDuration,
                 sensitivity: 0,
                 sensor: s.transducerType,

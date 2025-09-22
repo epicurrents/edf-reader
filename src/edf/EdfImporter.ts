@@ -111,7 +111,7 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
         return worker
     }
 
-    async readFile (source: File | StudyFileContext, config?: ConfigReadUrl) {
+    async importFile (source: File | StudyFileContext, config?: ConfigReadUrl) {
         const file = (source as StudyFileContext).file || source as File
         const fileType = file.name.endsWith('.bdf') ? 'bdf' : 'edf'
         const fileDesig = fileType.toUpperCase()
@@ -136,6 +136,54 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
                 return null
             }
             const fullHeader = file.slice(256, (edfHeader.signalCount + 1)*256)
+            await this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
+        } catch (e: unknown) {
+            Log.error(`${fileDesig} header parsing error: ${(e as Error).message}.`, SCOPE, e as Error)
+            return null
+        }
+        this._study.files.push(studyFile)
+        return studyFile
+    }
+
+    async importUrl (source: string | StudyFileContext, config?: ConfigReadUrl) {
+        const url = (source as StudyFileContext).url || source as string
+        const fileType = config?.name?.endsWith('.bdf') || url.endsWith('.bdf') ? 'bdf' : 'edf'
+        const fileDesig = fileType.toUpperCase()
+        Log.debug(`Loading ${fileDesig} from url ${url}.`, SCOPE)
+        const studyFile = {
+            file: null,
+            format: fileType,
+            mime: config?.mime || null,
+            name: config?.name || '',
+            partial: false,
+            range: [],
+            role: 'data',
+            modality: 'signal',
+            url: config?.url || url,
+        } as StudyContextFile
+        try {
+            // Load header part from the EDF file into the study.
+            const headers = new Headers()
+            headers.set('range', 'bytes=0-255')
+            if (config?.authHeader) {
+                headers.set('Authorization', config.authHeader)
+            }
+            const mainHeader = await fetch(url, {
+                headers: headers,
+            })
+            const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
+            if (!edfHeader) {
+                Log.error(`Could not load ${fileDesig} header from the given URL.`, SCOPE)
+                return null
+            }
+            // Load full header including signal info.
+            headers.set('range', `bytes=256-${(edfHeader.signalCount + 1)*256 - 1}`)
+            if (config?.authHeader) {
+                headers.set('Authorization', config.authHeader)
+            }
+            const fullHeader = await fetch(url, {
+                headers: headers,
+            })
             await this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
         } catch (e: unknown) {
             Log.error(`${fileDesig} header parsing error: ${(e as Error).message}.`, SCOPE, e as Error)
@@ -188,53 +236,5 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
             await this._readSignalInfo(source, config as ConfigReadSignals)
         }
         return meta.header || null
-    }
-
-    async readUrl (source: string | StudyFileContext, config?: ConfigReadUrl) {
-        const url = (source as StudyFileContext).url || source as string
-        const fileType = config?.name?.endsWith('.bdf') || url.endsWith('.bdf') ? 'bdf' : 'edf'
-        const fileDesig = fileType.toUpperCase()
-        Log.debug(`Loading ${fileDesig} from url ${url}.`, SCOPE)
-        const studyFile = {
-            file: null,
-            format: fileType,
-            mime: config?.mime || null,
-            name: config?.name || '',
-            partial: false,
-            range: [],
-            role: 'data',
-            modality: 'signal',
-            url: config?.url || url,
-        } as StudyContextFile
-        try {
-            // Load header part from the EDF file into the study.
-            const headers = new Headers()
-            headers.set('range', 'bytes=0-255')
-            if (config?.authHeader) {
-                headers.set('Authorization', config.authHeader)
-            }
-            const mainHeader = await fetch(url, {
-                headers: headers,
-            })
-            const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
-            if (!edfHeader) {
-                Log.error(`Could not load ${fileDesig} header from the given URL.`, SCOPE)
-                return null
-            }
-            // Load full header including signal info.
-            headers.set('range', `bytes=256-${(edfHeader.signalCount + 1)*256 - 1}`)
-            if (config?.authHeader) {
-                headers.set('Authorization', config.authHeader)
-            }
-            const fullHeader = await fetch(url, {
-                headers: headers,
-            })
-            await this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
-        } catch (e: unknown) {
-            Log.error(`${fileDesig} header parsing error: ${(e as Error).message}.`, SCOPE, e as Error)
-            return null
-        }
-        this._study.files.push(studyFile)
-        return studyFile
     }
 }

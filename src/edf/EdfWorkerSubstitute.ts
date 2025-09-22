@@ -41,9 +41,9 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
         const action = message.action
         Log.debug(`Received message with action ${action}.`, SCOPE)
         switch (action) {
-            case 'cache-signals-from-url': {
+            case 'cache-signals': {
                 try {
-                    const success = await this._reader.cacheSignalsFromUrl()
+                    const success = await this._reader.cacheSignals()
                     return this.returnSuccess({
                         ...message,
                         complete: success,
