@@ -53,14 +53,9 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
             const modality = config?.signals
                            ? config.signals[i]?.modality
                            // EDF Annotations are always a meta channel. Also treat channels without a unit as meta.
-                           : label.toLowerCase() === 'edf annotations' || !unitLow?.trim()
+                           : label.toLowerCase() === 'edf annotations' || !unitLow?.trim().length
                              ? 'meta'
                              : 'signal'
-            // Try to determine amplification from unit.
-            const scale = unitLow === 'uv' || unitLow === 'µv' ? 0
-                        : unitLow === 'mv'
-                            ? -3 : unitLow === 'v'
-                                ?  -6 : 0
             // Try to determine record start.
             const sigData = {
                 label,
@@ -72,7 +67,7 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
                 unit: fullHeader.getSignalPhysicalUnit(i) || '',
                 samplesPerRecord: fullHeader.getSignalNumberOfSamplesPerRecord(i) || 0,
                 sampleCount: 0,
-                scale,
+                scale: 0,
                 physicalMin: fullHeader.getSignalPhysicalMin(i) || 0,
                 physicalMax: fullHeader.getSignalPhysicalMax(i) || 0,
                 filter: fullHeader.getSignalPrefiltering(i) || '',

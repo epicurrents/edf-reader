@@ -14,6 +14,7 @@
 import { GenericAsset } from '@epicurrents/core'
 import {
     floatsAreEqual,
+    getSignalScale,
     NUMERIC_ERROR_VALUE,
     safeObjectFrom ,
 } from '@epicurrents/core/dist/util'
@@ -282,6 +283,7 @@ export default class EdfDecoder implements FileDecoder {
                 const sigInfo = useHeaders.signalInfo[i]
                 const nSamples = sigInfo.sampleCount
                 const nBytes = nSamples*(sampleType.bytesPerElement)
+                const scale = getSignalScale(sigInfo.physicalUnit)
                 let isAnnotation = false
                 // Process annotation signal differently.
                 if (annotationSignals.includes(i)) {
@@ -321,19 +323,22 @@ export default class EdfDecoder implements FileDecoder {
                     dataOffset,
                     dataOffset + nBytes
                 )
-                rawSignals[i][r] = rawSignal
-                // Convert digital signal to physical signal.
-                const physicalSignal = new Array<number>(rawSignal.length).fill(0)
-                if (!isAnnotation) {
-                    for (let index=0; index<nSamples; index++) {
-                        // https://edfrw.readthedocs.io/en/latest/specifications.html#converting-digital-samples-to-physical-dimensions
-                        physicalSignal[index] = sigInfo.unitsPerBit * (rawSignal[index] + sigInfo.digitalOffset)
-                            //(
-                            //    ((rawSignal[index] - sigInfo.digitalMinimum) / digitalSignalRange )*physicalSignalRange
-                            //) + sigInfo.physicalMinimum
+                if (returnRaw) {
+                    rawSignals[i][r] = rawSignal
+                } else {
+                    // Convert digital signal to physical signal.
+                    const physicalSignal = new Array<number>(rawSignal.length).fill(0)
+                    if (!isAnnotation) {
+                        for (let index=0; index<nSamples; index++) {
+                            // https://edfrw.readthedocs.io/en/latest/specifications.html#converting-digital-samples-to-physical-dimensions
+                            physicalSignal[index] = sigInfo.unitsPerBit*(rawSignal[index] + sigInfo.digitalOffset)*scale
+                                //(
+                                //    ((rawSignal[index] - sigInfo.digitalMinimum) / digitalSignalRange )*physicalSignalRange
+                                //) + sigInfo.physicalMinimum
+                        }
                     }
+                    physicalSignals[i][r] = physicalSignal
                 }
-                physicalSignals[i][r] = physicalSignal
                 dataOffset += nBytes
             }
             // Add parsed annotations.
@@ -354,8 +359,8 @@ export default class EdfDecoder implements FileDecoder {
             // Refresh output with actual signal data.
             this._output = new EdfHeaderRecord(
                 useHeaders,
-                returnRaw ? rawSignals : [],
-                returnRaw ? [] : physicalSignals,
+                rawSignals,
+                physicalSignals,
                 annotations,
                 interruptions,
                 this._dataFormat
