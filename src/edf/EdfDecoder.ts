@@ -355,25 +355,15 @@ export default class EdfDecoder implements FileDecoder {
                 }
             }
         }
-        if (!buffer) {
-            // Refresh output with actual signal data.
-            this._output = new EdfHeaderRecord(
-                useHeaders,
-                rawSignals,
-                physicalSignals,
-                annotations,
-                interruptions,
-                this._dataFormat
-            )
-        } else {
-            // Add possible parsed annotations and interruptions.
-            if (annotations.length) {
-                this._output?.addAnnotations(...annotations)
-            }
-            if (interruptions.size) {
-                this._output?.addInterruptions(interruptions)
-            }
-        }
+        // Update output object.
+        this._output = new EdfHeaderRecord(
+            useHeaders,
+            [],
+            [],
+            annotations,
+            interruptions,
+            this._dataFormat
+        )
         // If more than one record was requested, we need to concatenate the response signal for each channel from the set of decoded signal records.
         return {
             annotations: annotations,
