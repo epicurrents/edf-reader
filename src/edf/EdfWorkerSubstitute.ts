@@ -78,12 +78,12 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 }
                 try {
                     const sigs = await this._reader.getSignals(data.range, data.config)
-                    const annos = this._reader.getAnnotations(data.range)
+                    const events = this._reader.getEvents(data.range)
                     const interruptions = this._reader.getInterruptions(data.range)
                     if (sigs) {
                         return this.returnSuccess({
                             ...message,
-                            annotations: annos,
+                            events,
                             interruptions,
                             ...sigs,
                         } as WorkerMessage['data'] & Omit<GetSignalsResponse, 'success'>)

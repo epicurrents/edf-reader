@@ -182,7 +182,8 @@ const updateCallback = (update: { [prop: string]: unknown }) => {
 READER.setUpdateCallback(updateCallback)
 
 const getAnnotations = (range: number[]) => {
-    return READER.getAnnotations(range)
+    // EDF only supports events.
+    return READER.getEvents(range)
 }
 
 const getInterruptions = (range: number[]) => {

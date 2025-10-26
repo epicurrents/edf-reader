@@ -100,8 +100,9 @@ export default class EdfReader extends GenericSignalReader implements SignalData
                                     0
                                 )
                 // Remove possible added annotations and interruptions.
-                this._annotations.clear()
+                this._events.clear()
                 this._interruptions.clear()
+                this._labels.length = 0
                 this._totalRecordingLength = (edfData?.interruptions.get(0) || 0) + this._fileTypeHeader.dataRecordDuration
             }
         }
