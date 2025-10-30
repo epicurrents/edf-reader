@@ -20,7 +20,7 @@ import {
 } from '@epicurrents/core/dist/util'
 import EdfHeaderRecord from '#edf/EdfHeaderRecord'
 import type {
-    AnnotationTemplate,
+    AnnotationEventTemplate,
     FileDecoder,
     SignalInterruptionMap,
 } from '@epicurrents/core/dist/types'
@@ -155,7 +155,7 @@ export default class EdfDecoder implements FileDecoder {
             priority: 0,
             start: 0,
             text: '',
-        } as AnnotationTemplate
+        } as AnnotationEventTemplate
         // Annotation parsing helper methods.
         type AnnotationFields = {
             /** Data record start time in seconds. */
@@ -255,7 +255,7 @@ export default class EdfDecoder implements FileDecoder {
         const rawSignals = new Array(useHeaders.signalCount) as Array<number>[][]
         const physicalSignals = new Array(useHeaders.signalCount) as Array<number>[][]
         const nDataRecords = Math.round(range ? range : useHeaders.dataRecordCount)
-        const annotations = [] as AnnotationTemplate[]
+        const annotations = [] as AnnotationEventTemplate[]
         const annotationSignals = [] as number[]
         const annoSignalLabel = `${this._dataFormat.substring(0, 3)} annotations`
         // Allocate elements for signals, marking possible EDF Annotations channels.
@@ -366,7 +366,7 @@ export default class EdfDecoder implements FileDecoder {
         )
         // If more than one record was requested, we need to concatenate the response signal for each channel from the set of decoded signal records.
         return {
-            annotations: annotations,
+            events: annotations,
             interruptions: interruptions,
             signals: returnRaw ? rawSignals.map((sigSet) => { return sigSet.flat() })
                                : physicalSignals.map((sigSet) => { return sigSet.flat() }),

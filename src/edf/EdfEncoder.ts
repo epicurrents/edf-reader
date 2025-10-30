@@ -165,7 +165,8 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             this.#footer.recordingDate = this.#header.recordingStartTime
                 ? this.#header.recordingStartTime.toISOString()
                 : '2000-01-01T00:00:00.000Z' // Default date.
-            this.#footer.annotations = this.#header.annotations || []
+            this.#footer.events = this.#header.events || []
+            this.#footer.labels = this.#header.labels || []
             this.#footer.interruptions = this.#header.interruptions || new Map()
         }
         // Update the channels in the footer based on the included signals.
@@ -204,7 +205,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
                     SCOPE
                 )
             }
-            this.#header.annotations = properties?.annotations || this.#header.annotations || []
+            this.#header.events = properties?.events || this.#header.events || []
             this.#header.interruptions = properties?.interruptions || this.#header.interruptions || new Map()
             this.#header.dataDuration = properties?.dataDuration || this.#header.dataDuration || 0
             this.#header.dataUnitCount = properties?.dataUnitCount || this.#header.dataUnitCount || 0
@@ -241,16 +242,30 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         if (anonymize) {
             // Perform anonymization by removing sensitive information.
             this.#footer.recordingDate = "2000-01-01T00:00:00.000Z" // Default date.
-            this.#footer.annotations = this.#footer.annotations.filter(anno => {
-                // Only include annotations with valid labels.
-                if (!this._validLabels.values().map(l => anno.label.match(l)).some(m => m)) {
+            // Sanitize events and labels.
+            this.#footer.events = this.#footer.events.filter(event => {
+                // Only include events with valid labels.
+                if (!this._validLabels.values().map(l => event.label.match(l)).some(m => m)) {
                     return false
                 }
                 return true
-            }).map(anno => {
+            }).map(event => {
                 return {
-                    ...anno,
-                    // Remove text part from annotations.
+                    ...event,
+                    // Remove text part from events.
+                    text: ''
+                }
+            })
+            this.#footer.labels = this.#footer.labels.filter(label => {
+                // Only include labels with valid names.
+                if (!this._validLabels.values().map(l => label.label.match(l)).some(m => m)) {
+                    return false
+                }
+                return true
+            }).map(label => {
+                return {
+                    ...label,
+                    // Remove text part from labels.
                     text: ''
                 }
             })

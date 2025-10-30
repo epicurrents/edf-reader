@@ -7,14 +7,14 @@
 
 import { extractSignalModality, parsePrefiltering } from '#util'
 import { GenericBiosignalHeader } from '@epicurrents/core'
-import {
-    type AnnotationTemplate,
-    type BiosignalFilters,
-    type BiosignalHeaderSignal,
-    type SignalInterruptionMap,
+import type {
+    AnnotationEventTemplate,
+    BiosignalFilters,
+    BiosignalHeaderSignal,
+    SignalInterruptionMap,
 } from '@epicurrents/core/dist/types'
-import { type EdfHeader } from '#types'
-import Log from 'scoped-event-log'
+import type { EdfHeader } from '#types'
+import { Log } from 'scoped-event-log'
 
 const SCOPE = 'EdfHeaderRecord'
 
@@ -27,7 +27,7 @@ export default class EdfHeaderRecord extends GenericBiosignalHeader {
         header: EdfHeader,
         rawSignals = [] as Array<number>[][],
         physicalSignals = [] as Array<number>[][],
-        annotations = [] as AnnotationTemplate[],
+        events = [] as AnnotationEventTemplate[],
         interruptions = new Map() as SignalInterruptionMap,
         fileType = 'edf'
     ) {
@@ -57,7 +57,7 @@ export default class EdfHeaderRecord extends GenericBiosignalHeader {
             header.isPlus ? `${fileType}+` : fileType, header.localRecordingId, header.patientId,
             header.dataRecordCount, header.dataRecordDuration, dataRecordSize,
             header.signalCount, signalProps, header.recordingDate,
-            header.discontinuous, annotations, interruptions
+            header.discontinuous, events, [], interruptions
         )
         this._header = header
         for (const sigSet of physicalSignals) {

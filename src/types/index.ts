@@ -6,7 +6,8 @@
  */
 
 import type {
-    AnnotationTemplate,
+    AnnotationEventTemplate,
+    AnnotationLabelTemplate,
     BiosignalChannel,
     ConfigReadHeader,
     ConfigReadSignals,
@@ -37,8 +38,6 @@ export type ConfigReadEdfHeader = ConfigReadHeader & Partial<ConfigReadSignals>
  * It is an extension to the EDF header. It is meant to be read and parsed after the header and before the signal data.
  */
 export type EdfFooter = SafeObject & {
-    /** Annotations in the recording. */
-    annotations: AnnotationTemplate[]
     /** Any file attachments that are not time-synced videos. */
     attachments: {
         /** Byte end position of the attachment. */
@@ -62,8 +61,12 @@ export type EdfFooter = SafeObject & {
      * This configuration only applies to the appropriate resource module, in this case the EEG module.
      */
     config: SafeObject
+    /** Events in the recording. */
+    events: AnnotationEventTemplate[]
     /** Interruptions in the recording. */
     interruptions: SignalInterruptionMap
+    /** Labels in the recording. */
+    labels: AnnotationLabelTemplate[]
     /** Recording modality (in this case "eeg"). */
     modality: "eeg"
     /** Recording date as an ISO string or null if not known. */
@@ -211,11 +214,11 @@ export type EdfSignalInfo = SafeObject & {
 }
 
 /**
- * EDF+ files store the associated annotations in the same data records
- * as the actuals signals, which is why they are parsed at the same time.
+ * EDF+ files store the associated events in the same data records as the actual signals, which is why they are parsed
+ * at the same time.
  */
 export interface EdfSignalPart extends SignalCachePart {
-    annotations?: AnnotationTemplate[]
+    events?: AnnotationEventTemplate[]
     interruptions?: SignalInterruptionMap
 }
 
