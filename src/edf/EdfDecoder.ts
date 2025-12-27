@@ -151,10 +151,11 @@ export default class EdfDecoder implements FileDecoder {
             channels: [],
             class: 'event',
             duration: 0,
-            label: '',
+            //label: '', // Use value as label.
             priority: 0,
             start: 0,
             text: '',
+            value: '',
         } as AnnotationEventTemplate
         // Annotation parsing helper methods.
         type AnnotationFields = {

@@ -245,7 +245,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             // Sanitize events and labels.
             this.#footer.events = this.#footer.events.filter(event => {
                 // Only include events with valid labels.
-                if (!this._validLabels.values().map(l => event.label.match(l)).some(m => m)) {
+                if (!this._validLabels.values().map(l => event.label?.match(l)).some(m => m)) {
                     return false
                 }
                 return true
@@ -258,7 +258,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             })
             this.#footer.labels = this.#footer.labels.filter(label => {
                 // Only include labels with valid names.
-                if (!this._validLabels.values().map(l => label.label.match(l)).some(m => m)) {
+                if (!this._validLabels.values().map(l => label.label?.match(l)).some(m => m)) {
                     return false
                 }
                 return true
