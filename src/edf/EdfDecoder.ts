@@ -26,7 +26,7 @@ import type {
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader, type EdfSignalInfo } from '#types'
 import { unpackArray, unpackString } from 'byte-data'
-import Log from 'scoped-event-log'
+import { Log } from 'scoped-event-log'
 
 const SCOPE = 'EdfDecoder'
 /**

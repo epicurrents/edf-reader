@@ -18,7 +18,7 @@ import EdfDecoder from './EdfDecoder'
 import EdfWorkerSubstitute from './EdfWorkerSubstitute'
 import { headerToBiosignalHeader } from '#util'
 import { ConfigReadEdfHeader, type EdfHeader, type EdfHeaderSignal } from '#types'
-import Log from 'scoped-event-log'
+import { Log } from 'scoped-event-log'
 
 const SCOPE = 'EdfImporter'
 
