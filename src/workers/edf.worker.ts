@@ -11,6 +11,7 @@
 
 import { SETTINGS } from '@epicurrents/core'
 import type {
+    AppSettings,
     BiosignalHeaderRecord,
     ConfigChannelFilter,
     WorkerMessage,
@@ -50,7 +51,10 @@ onmessage = async (message: WorkerMessage) => {
     Log.debug(`Received message with action ${action}.`, SCOPE)
     if (action === 'cache-signals') {
         try {
-            const success = await cacheSignals()
+            const startFrom = typeof (message.data as { startFrom?: number })?.startFrom === 'number'
+                ? (message.data as { startFrom?: number }).startFrom
+                : 0
+            const success = await cacheSignals(startFrom)
             return returnSuccess({ complete: success })
         } catch (e: unknown) {
             Log.error(
@@ -138,16 +142,26 @@ onmessage = async (message: WorkerMessage) => {
                 header: BiosignalHeaderRecord
                 url: string
                 authHeader?: string
+                settingsApp?: Partial<AppSettings['app']>
             },
             {
                 formatHeader: 'Object',
                 header: 'Object',
                 url: 'String',
                 authHeader: 'String?',
+                settingsApp: 'Object?',
             }
         )
         if (!data) {
             return returnFailure(`Validating commission props failed.`)
+        }
+        // Apply the main-thread snapshot of app settings (sent by EegService.setupWorker) before
+        // any work that depends on them runs. `_buildDataBlocks` in particular reads
+        // `maxLoadCacheSize` and `dataBlockDuration` from `SETTINGS.app` to decide whether to use
+        // the rolling-window cache; if those still hold the bundled defaults instead of the user's
+        // configuration, the worker's decision diverges from the main thread's.
+        if (data.settingsApp) {
+            Object.assign(SETTINGS.app, data.settingsApp)
         }
         if (await setupStudy(data.header, data.formatHeader, data.url, data.authHeader)) {
             return returnSuccess({

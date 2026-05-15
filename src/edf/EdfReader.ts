@@ -127,6 +127,7 @@ export default class EdfReader extends GenericSignalReader implements SignalData
                 startBytePos: startByte,
                 endBytePos: endByte,
                 data: null,
+                loaded: false,
             })
         }
         return true
