@@ -135,6 +135,13 @@ onmessage = async (message: WorkerMessage) => {
     } else if (action === 'release-cache') {
         await READER.releaseCache()
         return returnSuccess()
+    } else if (action === 'release-signal-arrays') {
+        // Level 1 of the three-level cache lifecycle: cancel in-flight caching
+        // processes and release the mutex's signal-array views, but keep the
+        // mutex layout so it can be cheaply rebound via `initSignalBuffers(...,
+        // overwrite=true)` on re-activation.
+        await READER.releaseSignalArrays()
+        return returnSuccess()
     } else if (action === 'setup-worker') {
         const data = validateCommissionProps(
             message.data as WorkerMessage['data'] & {
