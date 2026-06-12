@@ -99,6 +99,7 @@ onmessage = async (message: WorkerMessage) => {
             return returnFailure((e as Error).message)
         }
     } else if (action === 'setup-cache') {
+        const derivationSlots = (message.data.derivationSlots as unknown[] | undefined) ?? []
         if (message.data.useMemoryManager) {
             const data = validateCommissionProps(
                 message.data as WorkerMessage['data'] & {
@@ -113,7 +114,11 @@ onmessage = async (message: WorkerMessage) => {
             if (!data) {
                 return
             }
-            const exportProps = await READER.setupMutex(data.buffer, data.range.start)
+            const exportProps = await READER.setupMutex(
+                data.buffer,
+                data.range.start,
+                derivationSlots as Parameters<typeof READER.setupMutex>[2],
+            )
             if (exportProps) {
                 // Pass the generated shared buffers back to main thread.
                 return returnSuccess({
@@ -125,7 +130,10 @@ onmessage = async (message: WorkerMessage) => {
         } else {
             // Duration is not a mandatory property.
             const duration = (message.data.dataDuration as number) || 0
-            const success = READER.setupCache(duration)
+            const success = READER.setupCache(
+                duration,
+                derivationSlots as Parameters<typeof READER.setupCache>[1],
+            )
             if (success) {
                 return returnSuccess()
             } else {
