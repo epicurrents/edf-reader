@@ -8,7 +8,7 @@
     "build": "npm run build:umd && npm run build:tsc",
     "build:assets": "webpack --progress --stats-error-details --config webpack.assets.js",
     "build:docs": "npx typedoc",
-    "build:tsc": "tsc && tsconfig-replace-paths --project tsconfig.json",
+    "build:tsc": "tsc && tsconfig-replace-paths --project tsconfig.paths.json",
     "build:umd": "webpack --progress --config webpack.config.js",
     "dev": "webpack serve --progress --config webpack.dev.js",
     "lint": "npm run lint:src",
