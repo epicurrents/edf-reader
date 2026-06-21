@@ -26,8 +26,10 @@
       "default": "./dist/index.js"
     },
     "./types": "./dist/types/index.d.ts",
+    "./workers/*": "./umd/*",
     "./package.json": "./package.json",
-    "./dist/types": "./dist/types/index.d.ts"
+    "./dist/types": "./dist/types/index.d.ts",
+    "./umd/*": "./umd/*"
   },
   "imports": {
     "#*": "./dist/*"
