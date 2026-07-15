@@ -5,7 +5,7 @@
  * @license    Apache-2.0
  */
 
-import type { EdfHeader, EdfSignalInfo } from '#types'
+import type { EdfHeader } from '#types'
 import { GenericBiosignalHeader } from '@epicurrents/core'
 import { BiosignalFilters } from '@epicurrents/core/dist/types'
 
@@ -15,7 +15,7 @@ import { BiosignalFilters } from '@epicurrents/core/dist/types'
  * @param labelMatchers - A map of labels (RegExp strings) to signal modalities (optional).
  * @returns Modality of the signal or empty string if unsuccessful.
  */
-export const extractSignalModality = (signal: EdfSignalInfo, labelMatchers?: Map<string, string>): string => {
+export const extractSignalModality = (signal: { label: string }, labelMatchers?: Map<string, string>): string => {
     const label = signal.label
     const matchers = labelMatchers
                         ? labelMatchers

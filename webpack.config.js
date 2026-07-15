@@ -8,6 +8,10 @@ module.exports = {
     mode: 'production',
     entry: {
         'edf-reader': { import: path.join(__dirname, 'src', 'index.ts') },
+        // The reader worker (edf.worker) is auto-emitted from the `new Worker(new URL(...))` reference in EdfImporter.
+        // The writer worker has no such reference (the exporter's worker is injected by the host), so it needs an
+        // explicit entry to be bundled, the same way core builds its workers.
+        'edf.writer.worker': { import: path.join(__dirname, 'src', 'workers', 'edf.writer.worker.ts') },
     },
     module: {
         rules: [
