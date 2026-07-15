@@ -7,9 +7,11 @@
 
 import { headerToBiosignalHeader } from '#util'
 import type {
+    EdfEncodeOptions,
     EdfFooter,
     EdfHeader,
     EdfRecordingType,
+    EdfSidecar,
 } from '#types'
 import type {
     AnnotationTemplate,
@@ -23,8 +25,12 @@ import { Log } from 'scoped-event-log'
 import { GenericAsset, GenericBiosignalHeader } from '@epicurrents/core'
 
 const SCOPE = 'EdfEncoder'
+/** Schema version written into the sidecar and embedded footer. */
+const SIDECAR_VERSION = '1.0'
 
 export default class EdfEncoder extends GenericAsset implements SignalDataEncoder {
+    /** Free-form annotations. Deliberately excluded from the sidecar; retained only for possible future use. */
+    #annotations: AnnotationTemplate[] = []
     /** Buffers that are ready to be written into the EDF file. */
     #buffers = {
         footer: null as ArrayBuffer | null,
@@ -37,12 +43,16 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
     /** Digital signal buffer from a source EDF recording. */
     #edfSignalBuffer: Int16Array | null = null
     #footer = safeObjectFrom({
-        annotations: [],
+        attachments: [],
         channels: [],
-        interruptions: [],
+        config: {},
+        events: [],
+        interruptions: new Map(),
+        labels: [],
         modality: 'eeg',
         recordingDate: null,
-        version: '1.0',
+        version: SIDECAR_VERSION,
+        videoCount: 0,
         videos: [],
     }) as EdfFooter
     #header: BiosignalHeaderRecord | null = null
@@ -63,15 +73,6 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
     static readonly TAL_DELIMITER = 20
     // TAL code for separating start time from duration is 21, but it's not supported by this encoder.
 
-    protected _validLabels = new Set<RegExp>([
-        /^edf annotations$/i,
-    ])
-    protected _validPrefilters = new Set<RegExp>([
-        /^((hp|lp|n)[:-=\s]\d\d?\d?\.?\d?\d?\d?hz[;_\s]?)+$/i,
-    ])
-    protected _validTransducers = new Set<RegExp>([
-        /^agagcl$/i,
-    ])
     /**
      * Physical amplitude ranges for encoded signals as [minimum, maximum] in the physical unit of the signal.
      * The final resolution of the signal is `(max-min)/65535` units.
@@ -94,6 +95,10 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         this.#dataEncoding = dataEncoding
         this.#recordingType = recordingType
         this.#footer.modality = recordingType
+    }
+
+    get annotations () {
+        return this.#annotations
     }
 
     get dataEncoding () {
@@ -195,36 +200,68 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             Log.error(`Cannot update header, header properties are locked.`, SCOPE)
             return
         }
-        if (this.#header) {
-            // If the header is already set, update it with the given properties.
-            if (properties?.dataUnitDuration !== undefined && properties.dataUnitDuration !== 1) {
-                // Warn user if the data unit duration is not 1 second
-                Log.warn(
-                    `EdfEncoder only supports 1 second data unit duration, ` +
-                    `trying to encode signal data with new value of ${properties.dataUnitDuration} will fail.`,
-                    SCOPE
-                )
-            }
-            this.#header.events = properties?.events || this.#header.events || []
-            this.#header.interruptions = properties?.interruptions || this.#header.interruptions || new Map()
-            this.#header.dataDuration = properties?.dataDuration || this.#header.dataDuration || 0
-            this.#header.dataUnitCount = properties?.dataUnitCount || this.#header.dataUnitCount || 0
-            this.#header.dataUnitDuration = properties?.dataUnitDuration || this.#header.dataUnitDuration || 1
-            this.#header.dataUnitSize = properties?.dataUnitSize || this.#header.dataUnitSize || 0
-            this.#header.discontinuous = properties?.discontinuous || this.#header.discontinuous || false
-            this.#header.patientId = properties?.patientId || this.#header.patientId || 'Anonymous'
-            this.#header.recordingId = properties?.recordingId || this.#header.recordingId || 'Epicurrents EDF'
-            this.#header.recordingStartTime = properties?.recordingStartTime
-                                              || this.#header.recordingStartTime
-                                              || null
-            this.#header.signalCount = properties?.signalCount || this.#header.signalCount || 0
-            this.#header.signals = properties?.signals || this.#header.signals || []
-        } else {
-            // If the header is not set, create a new one.
-            this.createHeader(properties)
+        if (properties?.dataUnitDuration !== undefined && properties.dataUnitDuration !== 1) {
+            // Warn user if the data unit duration is not 1 second.
+            Log.warn(
+                `EdfEncoder only supports 1 second data unit duration, ` +
+                `trying to encode signal data with new value of ${properties.dataUnitDuration} will fail.`,
+                SCOPE
+            )
         }
+        // GenericBiosignalHeader exposes read-only accessors (apart from its adders), so merge the current values
+        // with the given properties and construct a fresh header rather than mutating in place.
+        const current = this.#header
+        this.#header = new GenericBiosignalHeader(
+            'edf',
+            properties?.recordingId ?? current?.recordingId ?? 'Epicurrents EDF',
+            properties?.patientId ?? current?.patientId ?? 'Anonymous',
+            properties?.dataUnitCount ?? current?.dataUnitCount ?? 0,
+            properties?.dataUnitDuration ?? current?.dataUnitDuration ?? 1,
+            properties?.dataUnitSize ?? current?.dataUnitSize ?? 0,
+            properties?.signalCount ?? current?.signalCount ?? 0,
+            properties?.signals ?? current?.signals ?? [],
+            properties?.recordingStartTime ?? current?.recordingStartTime ?? null,
+            properties?.discontinuous ?? current?.discontinuous ?? false,
+            properties?.events ?? current?.events ?? [],
+            properties?.labels ?? current?.labels ?? [],
+            properties?.interruptions ?? current?.interruptions ?? new Map(),
+        )
         // Update the footer based on the header.
         this.#updateFooter()
+    }
+
+    /**
+     * Build the serializable sidecar metadata object from the current header and footer state.
+     * @param anonymize - Blank subject identifiers and strip event/label text (structured events/labels are kept).
+     */
+    #buildSidecarObject (anonymize: boolean): EdfSidecar {
+        const events = this.#footer.events || []
+        const labels = this.#footer.labels || []
+        return {
+            channels: this.#footer.channels,
+            events: anonymize ? this.#stripAnnotationText(events) : events,
+            interruptions: this.#serializeInterruptions(this.#footer.interruptions),
+            labels: anonymize ? this.#stripAnnotationText(labels) : labels,
+            modality: this.#recordingType,
+            subject: anonymize
+                ? { patientId: null, recordingDate: null, recordingId: null }
+                : {
+                    patientId: this.#header?.patientId ?? null,
+                    recordingDate: this.#footer.recordingDate,
+                    recordingId: this.#header?.recordingId ?? null,
+                },
+            version: SIDECAR_VERSION,
+        }
+    }
+
+    /** Convert the interruption map into a JSON-serializable array of `[start, duration]` pairs. */
+    #serializeInterruptions (interruptions: SignalInterruptionMap): [number, number][] {
+        return Array.from(interruptions.entries(), ([start, duration]): [number, number] => [start, duration])
+    }
+
+    /** Remove the free-text and author fields from events or labels, preserving their structural properties. */
+    #stripAnnotationText<T extends AnnotationTemplate> (items: T[]): T[] {
+        return items.map(item => ({ ...item, annotator: undefined, text: '' }))
     }
 
     async #writeFooterBuffer (anonymize = false): Promise<ArrayBuffer | null> {
@@ -233,59 +270,19 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             Log.error(`Cannot write footer buffer, header properties are not locked.`, SCOPE)
             return null
         }
-        if (!this.#footer) {
-            Log.error(`Cannot write footer buffer, current footer property is empty.`, SCOPE)
-            return null
-        }
-        this.#footer.version = '1.0' // Set the version to 1.0 by default.
-        this.#footer.modality = this.#recordingType // Set the modality to the recording type.
-        if (anonymize) {
-            // Perform anonymization by removing sensitive information.
-            this.#footer.recordingDate = "2000-01-01T00:00:00.000Z" // Default date.
-            // Sanitize events and labels.
-            this.#footer.events = this.#footer.events.filter(event => {
-                // Only include events with valid labels.
-                if (!this._validLabels.values().map(l => event.label?.match(l)).some(m => m)) {
-                    return false
-                }
-                return true
-            }).map(event => {
-                return {
-                    ...event,
-                    // Remove text part from events.
-                    text: ''
-                }
-            })
-            this.#footer.labels = this.#footer.labels.filter(label => {
-                // Only include labels with valid names.
-                if (!this._validLabels.values().map(l => label.label?.match(l)).some(m => m)) {
-                    return false
-                }
-                return true
-            }).map(label => {
-                return {
-                    ...label,
-                    // Remove text part from labels.
-                    text: ''
-                }
-            })
-        }
-        // Create a JSON string from the footer object and covert to an UTF-8 byte array.
-        const footerBytes = new TextEncoder().encode(JSON.stringify(this.#footer))
+        // Create a JSON string from the sidecar object and convert to an UTF-8 byte array.
+        const footerBytes = new TextEncoder().encode(JSON.stringify(this.#buildSidecarObject(anonymize)))
         // Calculate the size of the footer in KB.
         const footerSize = Math.ceil(footerBytes.length / 1024)
-        // Create an ArrayBuffer for the footer.
+        // Create an ArrayBuffer for the footer, padded to a full KB.
         const footerBuffer = new ArrayBuffer(footerSize * 1024)
         const footerView = new Uint8Array(footerBuffer)
-        // Write the footer bytes into the buffer.
-        for (let i = 0; i < footerBytes.length; i++) {
-            footerView[i] = footerBytes[i]
-        }
+        footerView.set(footerBytes)
         this.#buffers.footer = footerBuffer
         return footerBuffer
     }
 
-    async #writeHeaderBuffer (anonymize = false): Promise<ArrayBuffer | null> {
+    async #writeHeaderBuffer (anonymize = false, embedFooter = false): Promise<ArrayBuffer | null> {
         this.#buffers.header = null
         if (!this.#header) {
             Log.error(`Cannot write header buffer, current header property is empty.`, SCOPE)
@@ -309,13 +306,13 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             // Write the EDF version, padded with spaces if necessary.
             headerView.setUint8(offset++, version.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
-        // Write the local patient ID.
-        const patientId = this.#header.patientId || 'Anonymous'
+        // Write the local patient ID; blank it for anonymized output.
+        const patientId = anonymize ? 'X X X X' : (this.#header.patientId || 'Anonymous')
         for (let i = 0; i < 80; i++) {
             headerView.setUint8(offset++, patientId.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
-        // Write the local recording ID.
-        const recordingId = this.#header.recordingId || 'Epicurrents EDF'
+        // Write the local recording ID; blank it for anonymized output.
+        const recordingId = anonymize ? 'Startdate X X X X' : (this.#header.recordingId || 'Epicurrents EDF')
         for (let i = 0; i < 80; i++) {
             headerView.setUint8(offset++, recordingId.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
@@ -335,20 +332,29 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         for (let i = 0; i < 16; i++) {
             headerView.setUint8(offset++, recordingDateTime.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
-        // Compute the byte size of the entire recording.
-        const totalByteSize = headerBytes + this.#header.dataUnitCount*this.#header.dataUnitSize
-        // Get the footer size in KB.
-        const footerBuffer = this.#buffers.footer || (await this.#writeFooterBuffer())
-        if (!footerBuffer) {
-            Log.error(`Failed to write footer buffer for size estimation.`, SCOPE)
-            return null
+        // Write the number of bytes occupied by the header record.
+        const headerRecordBytes = headerBytes.toString()
+        for (let i = 0; i < 8; i++) {
+            headerView.setUint8(offset++, headerRecordBytes.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
-        // Store the footer size in KB.
-        const footerSize = Math.ceil(footerBuffer.byteLength/1024)
-        // Write the reserved field for EDF+ files, keep empty for normal EDF files.
-        const reserved = this.#header.discontinuous
-                       ? `EDF+D EC:${totalByteSize}:${footerSize}`
-                       : `EDF EC:${totalByteSize}:${footerSize}`
+        // Write the reserved field. When embedding the sidecar as a footer, use the Epicurrents container marker
+        // `<EDF|EDF+D> EC:<total bytes>:<footer KB>`; otherwise emit a standard EDF/EDF+ reserved field so the file
+        // reads as ordinary EDF in third-party tools.
+        let reserved = this.#header.discontinuous ? 'EDF+D' : ''
+        if (embedFooter) {
+            // Compute the byte size of the entire recording.
+            const totalByteSize = headerBytes + this.#header.dataUnitCount*this.#header.dataUnitSize
+            // Get the footer size in KB.
+            const footerBuffer = this.#buffers.footer || (await this.#writeFooterBuffer())
+            if (!footerBuffer) {
+                Log.error(`Failed to write footer buffer for size estimation.`, SCOPE)
+                return null
+            }
+            const footerSize = Math.ceil(footerBuffer.byteLength/1024)
+            reserved = this.#header.discontinuous
+                     ? `EDF+D EC:${totalByteSize}:${footerSize}`
+                     : `EDF EC:${totalByteSize}:${footerSize}`
+        }
         for (let i = 0; i < 44; i++) {
             headerView.setUint8(offset++, reserved.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
@@ -372,26 +378,17 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             Log.error(`Cannot write header buffer, no signals to include.`, SCOPE)
             return null
         }
-        // Write the labels for each signal, using the included channels.
+        // Write the label for each signal. Channel labels are technical metadata (electrode names, e.g. "EEG C3"),
+        // not subject-identifying information, and montages match on them, so they are preserved even when anonymizing.
         for (const [_idx, signal] of includedSignals) {
-            // Write the label; if anonymize is true, use '??' for unknown labels.
-            const label = !anonymize || this._validLabels.values().map(l => signal.label.trim().match(l)).some(m => m)
-                        ? signal.label
-                        : '??'
             for (let i = 0; i < 16; i++) {
-                headerView.setUint8(offset++, label.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
+                headerView.setUint8(offset++, signal.label.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
             }
         }
-        // Write the transducer names.
+        // Write the transducer names. Like labels, transducer types are technical metadata and are preserved.
         for (const [_idx, signal] of includedSignals) {
-            // Write the transducer; if anonymize is true, use an empty string for unknown transducers.
-            const transducer = !anonymize || this._validTransducers.values().map(
-                                                t => signal.sensor.match(t)
-                                             ).some(m => m)
-                             ? signal.sensor
-                             : ''
             for (let i = 0; i < 80; i++) {
-                headerView.setUint8(offset++, transducer.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
+                headerView.setUint8(offset++, signal.sensor.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
             }
         }
         // Write the physical units.
@@ -449,11 +446,12 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
                 headerView.setUint8(offset++, prefiltering.join(' ').charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
             }
         }
-        // Write the number of samples per data record.
+        // Write the number of samples per data record. With a fixed 1 second record duration this equals the
+        // signal's sampling rate, not its total sample count.
         for (const [_idx, signal] of includedSignals) {
-            const sampleCount = (signal.sampleCount || 0).toString()
+            const samplesPerRecord = (signal.samplingRate || 0).toString()
             for (let i = 0; i < 8; i++) {
-                headerView.setUint8(offset++, (sampleCount.toString().charCodeAt(i) || EdfEncoder.EMPTY_SPACE))
+                headerView.setUint8(offset++, (samplesPerRecord.charCodeAt(i) || EdfEncoder.EMPTY_SPACE))
             }
         }
         // Write the reserved field.
@@ -488,158 +486,89 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             return null
         }
         const startTime = Date.now()
-        Log.debug(`Writing signal buffer for ${includedSignals.size} signals.`, SCOPE)
-        // Check if we should encode timestamps into the EDF+ annotations signal.
-        // Since we use a fixed record duration of 1 second, we can only encode interruptions with a starting time and
-        // duration in full second(s).
-        // If the recording does not contain interruptions or we cannot encode them, produce a normal EDF file.
-        const encodeInterruptions = this.#header.discontinuous
-                           && this.#footer.interruptions.size
-                           && !this.#footer.interruptions.entries().filter(
-                                    ([start, duration]) => start % 1 !== 0 && duration % 1 !== 0
-                                ).toArray().length
-        if (!encodeInterruptions && this.#header.discontinuous) {
+        // Included signals in header order, paired with their per-record sample count (the sampling rate, since a
+        // data record is a fixed one second long). Smaller record durations would require all included signals to
+        // have sampling rates with a common denominator and are outside the scope of this encoder.
+        const included = Array.from(includedSignals)
+        const samplesPerRecord = included.map(([_i, signal]) => signal.samplingRate || 0)
+        // Number of one-second data records to write.
+        const recordCount = this.#header.dataUnitCount || Math.round(this.#header.dataDuration) || 0
+        Log.debug(`Writing signal buffer for ${included.length} signals over ${recordCount} records.`, SCOPE)
+        // Discontinuous (EDF+D) output requires an annotation signal declared in the header, which is not yet
+        // written, so fall back to a continuous file for now.
+        if (this.#header.discontinuous) {
             Log.warn(
-                `Recording is discontinuous but either contains no interruptions or they are incompatible ` +
-                `(only interruptions with a start and duration in full seconds are supported). ` +
-                `Producing a normal EDF file instead.`,
+                `Discontinuous (EDF+D) encoding is not yet supported; producing a continuous EDF file instead.`,
                 SCOPE
             )
         }
-        // See if we have a digital signal to encode and if it can be used.
-        if (this.#edfHeader && this.#edfSignalBuffer) {
-            if (this.#edfHeader.dataRecordDuration !== 1) {
-                Log.error(
-                    `Cannot write digital signals, EDF header data record duration is not 1 second. ` +
-                    `Current value: ${this.#edfHeader.dataRecordDuration}.`,
-                    SCOPE
-                )
-                return null
-            }
+        // The contiguous source-EDF buffer passthrough is not yet wired into this path; per-channel digital signals
+        // and physical signals are supported instead.
+        if (this.#edfSignalBuffer) {
+            Log.warn(`Contiguous digital source buffer passthrough is not yet supported; it will be ignored.`, SCOPE)
         }
-        // Calculate the total byte size of the signal data.
-        // The annotations signal takes up space equal to the length of the timestamp + 3 bytes (1 for the
-        // preceding '+' and two for the trailing 0x20 delimiters) in each data record.
-        // Since the number of samples must be the same in each recording, we have to use the maximum timestamp
-        // length across all records.
-        // We will use a record duration of 1 second by default. Smaller durations would require all of the
-        // included signals to have sampling rates with common denominators and is outside the scope of this
-        // simple encoder at this point.
-        /** The main offset is measured in bytes. */
-        let byteOffset = 0
-        const annoLength = this.#header.discontinuous
-                         ? (this.#header.dataDuration.toFixed().length + 3)
-                         : 0
-        let recordSize = annoLength
-        let totalByteSize = recordSize*this.#header.dataDuration
-        for (const [_i, signal] of includedSignals) {
-            recordSize += signal.samplingRate*2
-            totalByteSize += signal.sampleCount*2
-        }
-        const signalBuffer = new ArrayBuffer(totalByteSize)
-        for (let r=0; r<this.#header.dataDuration; r++) {
-            // Use signal view to write individual signal samples in little-endian format.
-            const signalView = new DataView(signalBuffer)
-            // Write 1 second of data for each signal.
-            for (const [i, signal] of includedSignals) {
-                if (this.#physicalSignals[i].length < (r + 1)*signal.sampleCount) {
-                    Log.error(`Signal data for signal index ${i} is too short for record index ${r}.`, SCOPE)
-                    return null
-                }
-                // If we have a digital signal, we can write it directly.
-                if (this.#edfSignalBuffer && this.#edfHeader) {
-                    // Calculate offset for the start of this record and the signal part within that record.
-                    const offset = this.#edfHeader.signalInfo.slice(0, i).reduce(
-                        (acc, sig) => acc + sig.sampleCount*EdfEncoder.SAMPLE_SIZE,
-                        r*this.#edfHeader.recordByteSize // Byte size of preceding records.
-                    )
-                    const signalView = new Int16Array(signalBuffer, offset, signal.samplingRate)
-                    if (this.#edfSignalBuffer.length < (r + 1)*signal.samplingRate) {
-                        Log.error(`Digital signal data is too short for record index ${r}.`, SCOPE)
+        // Byte size of one data record: each signal's samples-per-record times the sample size.
+        const recordByteSize = samplesPerRecord.reduce((acc, spr) => acc + spr*EdfEncoder.SAMPLE_SIZE, 0)
+        const signalBuffer = new ArrayBuffer(recordByteSize*recordCount)
+        const signalView = new DataView(signalBuffer)
+        for (let r = 0; r < recordCount; r++) {
+            // Byte offset of the current signal within the buffer, advanced per signal within the record.
+            let byteOffset = r*recordByteSize
+            for (let c = 0; c < included.length; c++) {
+                const [i, signal] = included[c]
+                const spr = samplesPerRecord[c]
+                if (this.#digitalSignals[i]) {
+                    // Copy digital Int16 samples directly.
+                    const digital = this.#digitalSignals[i]
+                    if (digital.length < (r + 1)*spr) {
+                        Log.error(`Digital signal ${i} data is too short for record ${r}.`, SCOPE)
                         return null
                     }
-                    // Copy the signal data record from the digital signals array.
-                    const value = this.#edfSignalBuffer.subarray(
-                        r*signal.samplingRate, (r + 1)*signal.samplingRate
-                    )
-                    signalView.set(value)
-                    byteOffset += offset
-                    // Rest of the loop is for encoding physical signals into Int16.
-                    continue
-                } else if (this.#digitalSignals[i]) {
-                    // If we have a digital signal, write it directly.
-                    if (this.#digitalSignals[i].length < (r + 1)*signal.samplingRate) {
-                        Log.error(`Digital signal data is too short for record index ${r}.`, SCOPE)
-                        return null
+                    for (let j = 0; j < spr; j++) {
+                        signalView.setInt16(byteOffset + j*EdfEncoder.SAMPLE_SIZE, digital[r*spr + j], true)
                     }
-                    const offset = r*signal.sampleCount*EdfEncoder.SAMPLE_SIZE
-                    const signalView = new Int16Array(signalBuffer, offset, signal.samplingRate)
-                    // Copy the signal data record from the digital signals array.
-                    const value = this.#digitalSignals[i].subarray(
-                        r*signal.samplingRate, (r + 1)*signal.samplingRate
-                    )
-                    signalView.set(value)
-                    byteOffset += offset
-                    // Rest of the loop is for encoding physical signals into Int16.
-                    continue
-                }
-                // Encode dignals from the Float32Array signal data.
-                if (this.#physicalSignals[i].length < (r + 1)*signal.samplingRate) {
-                    Log.error(
-                        `Physical signal ${i} data is too short for record index ${r} ` +
-                        `(expected ≥${(r + 1)*signal.samplingRate}, got ${this.#physicalSignals[i].length}).`, SCOPE)
-                    return null
-                }
-                const signalData = this.#physicalSignals[i].subarray(r*signal.sampleCount, (r + 1)*signal.sampleCount)
-                const [physMin, physMax] = this.#getPhysicalRangeFor(i, signal)
-                const unitsPerBit = (physMax - physMin)/(EdfEncoder.DIGITAL_MAX - EdfEncoder.DIGITAL_MIN)
-                const digitalOffset = physMax/unitsPerBit - EdfEncoder.DIGITAL_MAX
-                let offset = 0
-                for (let j=0; j<signalData.length; j++) {
-                    // Write the signal data as Int16 values.
-                    const value = Math.max(
-                        EdfEncoder.DIGITAL_MIN,
-                        Math.min(
-                            EdfEncoder.DIGITAL_MAX,
-                            Math.round(signalData[j]/unitsPerBit) - digitalOffset
+                } else {
+                    // Quantize physical Float32 samples into Int16 using the signal's physical range.
+                    const physical = this.#physicalSignals[i]
+                    if (!physical || physical.length < (r + 1)*spr) {
+                        Log.error(
+                            `Physical signal ${i} data is too short for record ${r} ` +
+                            `(expected ≥${(r + 1)*spr}, got ${physical?.length ?? 0}).`,
+                            SCOPE
                         )
-                    )
-                    signalView.setInt16(offset, value, true)
-                    offset++ // Offset is in 16-bit samples.
+                        return null
+                    }
+                    const [physMin, physMax] = this.#getPhysicalRangeFor(i, signal)
+                    // Physical units represented by a single digital step; guard against a zero-width (flat) range.
+                    const unitsPerBit = physMax > physMin
+                                      ? (physMax - physMin)/(EdfEncoder.DIGITAL_MAX - EdfEncoder.DIGITAL_MIN)
+                                      : 1
+                    for (let j = 0; j < spr; j++) {
+                        const digital = Math.round((physical[r*spr + j] - physMin)/unitsPerBit) + EdfEncoder.DIGITAL_MIN
+                        const clamped = Math.max(EdfEncoder.DIGITAL_MIN, Math.min(EdfEncoder.DIGITAL_MAX, digital))
+                        signalView.setInt16(byteOffset + j*EdfEncoder.SAMPLE_SIZE, clamped, true)
+                    }
                 }
-                byteOffset += offset*EdfEncoder.SAMPLE_SIZE
-            }
-            // Write the annotations signal data if it is included.
-            if (this.#header.discontinuous) {
-                // Write the timestamp followed by two delimiters.
-                const timestamp = `+${r}`
-                for (let i=0; i<annoLength; i++) {
-                    signalView.setUint8(
-                        byteOffset++,
-                        timestamp.charCodeAt(i)
-                        // Append with two TAL delimiter codes and the empty spaces after that.
-                        || (i < timestamp.length + 2 ? EdfEncoder.TAL_DELIMITER : EdfEncoder.EMPTY_SPACE)
-                    )
-                }
-            }
-            if (byteOffset%recordSize) {
-                Log.error(
-                    `Signal data offset is not aligned at offset ${byteOffset} (` +
-                        `got modulus of ${byteOffset%recordSize} with record size ${recordSize} bytes` +
-                    `).`,
-                    SCOPE
-                )
-                return null
+                byteOffset += spr*EdfEncoder.SAMPLE_SIZE
             }
         }
         Log.debug(
-            `Wrote ${this.#header.dataDuration} data records of ${includedSignals.size} signals. ` +
-            `Total size: ${signalBuffer.byteLength} bytes. ` +
-            `Time taken: ${Date.now() - startTime} ms.`,
+            `Wrote ${recordCount} data records of ${included.length} signals. ` +
+            `Total size: ${signalBuffer.byteLength} bytes. Time taken: ${Date.now() - startTime} ms.`,
             SCOPE
         )
         this.#buffers.signals = signalBuffer
         return signalBuffer
+    }
+
+    /**
+     * Build the sidecar metadata as a JSON string. This is the primary metadata artifact for anonymized exports; it
+     * carries the original (or, when anonymized, blanked) subject information, signal descriptions, events, and labels.
+     * @param options - Set `anonymize` to blank subject identifiers and strip event/label text.
+     * @returns The sidecar as a JSON string.
+     */
+    buildSidecar (options: { anonymize?: boolean } = {}): string {
+        return JSON.stringify(this.#buildSidecarObject(options.anonymize ?? false))
     }
 
     createHeader (properties?: Partial<BiosignalHeaderRecord>) {
@@ -655,9 +584,9 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             )
             return this.#header
         }
-        // Create a new header object with default values.
-        this.#header = new GenericBiosignalHeader('edf', 'Epicurrents EDF', 'Anonymous', 0, 1, 0, 0, [])
+        // Construct the header from the ground up out of the given properties (merged over the defaults).
         this.#updateHeader(properties)
+        return this.#header!
     }
 
     createHeaderFromEdf (properties?: Partial<EdfHeader>): EdfHeader {
@@ -695,37 +624,49 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         return this.#edfHeader!
     }
 
-    async encode (anonymize = false): Promise<ArrayBuffer | null> {
+    async encode (anonymize = false, options: EdfEncodeOptions = {}): Promise<ArrayBuffer | null> {
         if (!this.#header) {
             Log.error(`Cannot write to ArrayBuffer, current header property is empty.`, SCOPE)
             return null
         }
+        const embedFooter = options.embedFooter ?? false
+        const embedFooterAnonymized = options.embedFooterAnonymized ?? anonymize
         this.#locked = true // Lock the header properties to prevent further changes.
-        const footerBuffer = await this.#writeFooterBuffer(anonymize)
-        if (!footerBuffer) {
-            Log.error(`Failed to write footer buffer.`, SCOPE)
-            return null
+        // Only build the embedded footer when explicitly requested; the primary export path delivers the sidecar as a
+        // separate file via `buildSidecar`.
+        let footerBuffer: ArrayBuffer | null = null
+        if (embedFooter) {
+            footerBuffer = await this.#writeFooterBuffer(embedFooterAnonymized)
+            if (!footerBuffer) {
+                Log.error(`Failed to write footer buffer.`, SCOPE)
+                this.#locked = false
+                return null
+            }
+            Log.debug(`Footer buffer written, size: ${footerBuffer.byteLength} bytes.`, SCOPE)
         }
-        Log.debug(`Footer buffer written, size: ${footerBuffer.byteLength} bytes.`, SCOPE)
-        const headerBuffer = await this.#writeHeaderBuffer(anonymize)
+        const headerBuffer = await this.#writeHeaderBuffer(anonymize, embedFooter)
         if (!headerBuffer) {
             Log.error(`Failed to write header buffer.`, SCOPE)
+            this.#locked = false
             return null
         }
         Log.debug(`Header buffer written, size: ${headerBuffer.byteLength} bytes.`, SCOPE)
         const signalBuffer = await this.#writeSignalBuffer()
         if (!signalBuffer) {
             Log.error(`Failed to write signal buffer.`, SCOPE)
+            this.#locked = false
             return null
         }
         Log.debug(`Signal buffer written, size: ${signalBuffer.byteLength} bytes.`, SCOPE)
-        // Combine all buffers into a single ArrayBuffer.
-        const totalSize = headerBuffer.byteLength + signalBuffer.byteLength + footerBuffer.byteLength
+        // Combine the buffers into a single ArrayBuffer (footer only when embedded).
+        const totalSize = headerBuffer.byteLength + signalBuffer.byteLength + (footerBuffer?.byteLength || 0)
         const combinedBuffer = new ArrayBuffer(totalSize)
         const combinedView = new Uint8Array(combinedBuffer)
         combinedView.set(new Uint8Array(headerBuffer), 0)
         combinedView.set(new Uint8Array(signalBuffer), headerBuffer.byteLength)
-        combinedView.set(new Uint8Array(footerBuffer), headerBuffer.byteLength + signalBuffer.byteLength)
+        if (footerBuffer) {
+            combinedView.set(new Uint8Array(footerBuffer), headerBuffer.byteLength + signalBuffer.byteLength)
+        }
         Log.debug(`Combined EDF buffer written, total size: ${combinedBuffer.byteLength} bytes.`, SCOPE)
         this.#locked = false // Unlock the header properties after writing.
         return combinedBuffer
@@ -736,7 +677,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             Log.error(`Cannot set annotations, header properties are locked.`, SCOPE)
             return
         }
-        this.#footer.annotations = annotations
+        this.#annotations = annotations
     }
 
     setInterruptions (interruptions: SignalInterruptionMap) {

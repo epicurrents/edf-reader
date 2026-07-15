@@ -103,7 +103,7 @@ export type EdfFooter = SafeObject & {
 /**
  * Channel information as it is stored in the EDF footer.
  */
-type EdfFooterChannel = SafeObject & {
+export type EdfFooterChannel = SafeObject & {
     /** Channel label, e.g. "C3" or "EEG Fp1". */
     label: BiosignalChannel['label']
     /** Channel modality, e.g. "eeg" or "ecg". */
@@ -128,6 +128,51 @@ type EdfFooterChannel = SafeObject & {
     sensitivity: BiosignalChannel['sensitivity']
     /** Channel unit, e.g. "µV" for EEG. */
     unit: BiosignalChannel['unit']
+}
+
+/**
+ * Options controlling how the EDF encoder produces its output.
+ */
+export type EdfEncodeOptions = {
+    /**
+     * Embed the sidecar metadata as a JSON footer appended to the EDF file. Defaults to false; the primary export
+     * path delivers the sidecar as a separate file via the encoder's `buildSidecar` method instead.
+     */
+    embedFooter?: boolean
+    /**
+     * When embedding a footer, anonymize the embedded sidecar as well. Independent of the file-level `anonymize`
+     * flag, so an anonymized file may still embed original metadata (or vice versa). Defaults to the `anonymize` value.
+     */
+    embedFooterAnonymized?: boolean
+}
+
+/**
+ * Serializable sidecar metadata for an exported EDF recording. It carries the descriptive information that does not
+ * fit into (or is stripped from) the EDF header, so it can be delivered as a separate JSON file or optionally embedded
+ * as a footer. The sidecar deliberately excludes free-form annotations; only structured events and labels are kept.
+ */
+export type EdfSidecar = {
+    /** Per-channel signal descriptions. */
+    channels: EdfFooterChannel[]
+    /** Structured events in the recording. */
+    events: AnnotationEventTemplate[]
+    /** Recording interruptions as `[start, duration]` pairs in seconds. */
+    interruptions: [number, number][]
+    /** Structured labels for the recording. */
+    labels: AnnotationLabelTemplate[]
+    /** Recording modality. */
+    modality: EdfRecordingType
+    /** Subject and recording identifiers, either original or blanked when anonymized. */
+    subject: {
+        /** Local patient identification field, or null when anonymized. */
+        patientId: string | null
+        /** Recording start date as an ISO string, or null when unknown or anonymized. */
+        recordingDate: string | null
+        /** Local recording identification field, or null when anonymized. */
+        recordingId: string | null
+    }
+    /** Sidecar schema version. */
+    version: string
 }
 
 export type EdfHeader = SafeObject & {
