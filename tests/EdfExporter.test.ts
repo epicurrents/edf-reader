@@ -5,7 +5,7 @@
  * @license    Apache-2.0
  */
 
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import EdfDecoder from '../src/edf/EdfDecoder'
 import EdfExporter from '../src/edf/EdfExporter'
 import type { EdfSidecar } from '../src/types'
@@ -151,5 +151,26 @@ describe('EdfExporter.encodeResource', () => {
         )
         const sidecar = JSON.parse(result!.sidecar) as EdfSidecar
         expect(sidecar.subject.patientId).toBeNull()
+    })
+})
+
+describe('EdfExporter.convertResource', () => {
+    test('caches the resource signals, then encodes it', async () => {
+        const resource = makeResource()
+        const loadAndCacheSignals = vi.fn().mockResolvedValue(true)
+        ;(resource as unknown as { loadAndCacheSignals: unknown }).loadAndCacheSignals = loadAndCacheSignals
+        const result = await new EdfExporter().convertResource(resource, { anonymize: false })
+        expect(loadAndCacheSignals).toHaveBeenCalledTimes(1)
+        expect(result).not.toBeNull()
+        const { header } = decode(result!.edf)
+        expect(header.signalCount).toBe(CHANNELS.length)
+    })
+
+    test('returns null without encoding when caching fails', async () => {
+        const resource = makeResource()
+        const loadAndCacheSignals = vi.fn().mockResolvedValue(false)
+        ;(resource as unknown as { loadAndCacheSignals: unknown }).loadAndCacheSignals = loadAndCacheSignals
+        const result = await new EdfExporter().convertResource(resource)
+        expect(result).toBeNull()
     })
 })

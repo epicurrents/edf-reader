@@ -224,6 +224,26 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
     }
 
     /**
+     * Convert a decoded-but-inactive biosignal resource into an anonymized EDF file and metadata sidecar. This is the
+     * direct import→export conversion entry point: a study loader produces the resource (via `getResource`) without
+     * activating it, then this method caches its raw signals through the lightweight
+     * {@link BiosignalResource.loadAndCacheSignals} path — skipping the SAB allocation, default montages, and
+     * rolling-window machinery that full activation would incur — before encoding. Use this instead of
+     * {@link exportActiveResource} when converting a resource that is not the runtime's active recording.
+     * @param resource - The decoded (not necessarily activated) biosignal resource to convert.
+     * @param options - Export options.
+     * @returns The EDF bytes and sidecar JSON, or null if caching or encoding failed.
+     */
+    async convertResource (resource: BiosignalResource, options: EdfExportOptions = {}): Promise<EdfExportResult | null> {
+        const cached = await resource.loadAndCacheSignals()
+        if (!cached) {
+            Log.error(`Cannot convert resource: its signals could not be cached.`, SCOPE)
+            return null
+        }
+        return this.encodeResource(resource, options)
+    }
+
+    /**
      * Provide a factory for an encode worker. When set, the heavy encoding step runs off the main thread and the
      * finished EDF bytes are transferred back for download. Pass null to encode on the main thread.
      * @param getWorker - Factory returning a worker (or null to disable).
