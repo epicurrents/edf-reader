@@ -5,7 +5,7 @@
  * @license    Apache-2.0
  */
 
-import EdfProcesser from './EdfProcesser'
+import EdfReader from './EdfReader'
 import { ServiceWorkerSubstitute } from '@epicurrents/core'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 import {
@@ -20,13 +20,13 @@ import { type EdfHeader } from '#types'
 const SCOPE = 'EdfWorkerSubstitute'
 
 export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
-    protected _reader: EdfProcesser
+    protected _reader: EdfReader
     constructor () {
         super()
         if (!window.__EPICURRENTS__?.RUNTIME) {
             Log.error(`Reference to main application was not found!`, SCOPE)
         }
-        this._reader = new EdfProcesser(window.__EPICURRENTS__.RUNTIME.SETTINGS)
+        this._reader = new EdfReader(window.__EPICURRENTS__.RUNTIME.SETTINGS)
         const updateCallback = (update: { [prop: string]: unknown }) => {
             if (update.action === 'cache-signals') {
                 this.returnMessage(update as WorkerMessage['data'])
@@ -41,17 +41,21 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
         const action = message.action
         Log.debug(`Received message with action ${action}.`, SCOPE)
         switch (action) {
-            case 'cache-signals-from-url': {
+            case 'cache-signals': {
                 try {
-                    const success = await this._reader.cacheSignalsFromUrl()
+                    const success = await this._reader.cacheSignals()
                     return this.returnSuccess({
                         ...message,
                         complete: success,
                     })
-                } catch (e) {
+                } catch (e: unknown) {
                     Log.error(
-                        `An error occurred while trying to cache signals, operation was aborted.`,
-                    SCOPE, e as Error)
+                        `An error occurred while trying to cache signals, operation was aborted: ${
+                            (e as Error).message
+                        }.`,
+                        SCOPE,
+                        e as Error
+                    )
                     return this.returnFailure(message)
                 }
             }
@@ -63,7 +67,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                         range: number[]
                     },
                     {
-                        config: ['Object', 'undefined'],
+                        config: 'Object?',
                         range: ['Number', 'Number'],
                     },
                     true,
@@ -74,20 +78,20 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 }
                 try {
                     const sigs = await this._reader.getSignals(data.range, data.config)
-                    const annos = this._reader.getAnnotations(data.range)
-                    const gaps = this._reader.getDataGaps(data.range)
+                    const events = this._reader.getEvents(data.range)
+                    const interruptions = this._reader.getInterruptions(data.range)
                     if (sigs) {
                         return this.returnSuccess({
                             ...message,
-                            annotations: annos,
-                            dataGaps: gaps,
+                            events,
+                            interruptions,
                             ...sigs,
                         } as WorkerMessage['data'] & Omit<GetSignalsResponse, 'success'>)
                     } else {
                         return this.returnFailure(message)
                     }
-                } catch (e) {
-                    Log.error(`Getting signals failed.`, SCOPE, e as Error)
+                } catch (e: unknown) {
+                    Log.error(`Getting signals failed: ${(e as Error).message}.`, SCOPE, e as Error)
                     return this.returnFailure(message)
                 }
             }
@@ -110,11 +114,13 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                         formatHeader: EdfHeader
                         header: BiosignalHeaderRecord
                         url: string
+                        authHeader?: string
                     },
                     {
                         formatHeader: 'Object',
                         header: 'Object',
                         url: 'String',
+                        authHeader: 'String?',
                     },
                     true,
                     this.returnMessage.bind(this)
@@ -122,7 +128,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 if (!data) {
                     return
                 }
-                const result = await this._reader.setupStudy(data.header, data.formatHeader, data.url)
+                const result = await this._reader.setupStudy(data.header, data.formatHeader, data.url, data.authHeader)
                 if (result) {
                     return this.returnSuccess({
                         ...message,
@@ -136,7 +142,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             case 'shutdown':
             case 'decommission': {
                 await this._reader.destroy()
-                this._reader = null as unknown as EdfProcesser
+                this._reader = null as unknown as EdfReader
                 super.shutdown()
                 return this.returnSuccess(message)
             }

@@ -1,24 +1,24 @@
 /**
- * EDF recording class to store EDF header information.
+ * EDF header record class to store EDF header information.
  * @package    epicurrents/edf-reader
  * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
  */
 
+import { extractSignalModality, parsePrefiltering } from '#util'
 import { GenericBiosignalHeader } from '@epicurrents/core'
-import {
-    type AnnotationTemplate,
-    type BiosignalFilters,
-    type BiosignalHeaderSignal,
-    type SignalDataGapMap,
+import type {
+    AnnotationEventTemplate,
+    BiosignalFilters,
+    BiosignalHeaderSignal,
+    SignalInterruptionMap,
 } from '@epicurrents/core/dist/types'
-import { type EdfHeader } from '#types'
-import EdfDecoder from './EdfDecoder'
-import Log from 'scoped-event-log'
+import type { EdfHeader } from '#types'
+import { Log } from 'scoped-event-log'
 
-const SCOPE = 'EdfHeader'
+const SCOPE = 'EdfHeaderRecord'
 
-export default class EdfRecording extends GenericBiosignalHeader {
+export default class EdfHeaderRecord extends GenericBiosignalHeader {
     private _header: EdfHeader
     private _physicalSignals = [] as Float32Array[][]
     private _rawSignals: Array<number>[][]
@@ -27,8 +27,8 @@ export default class EdfRecording extends GenericBiosignalHeader {
         header: EdfHeader,
         rawSignals = [] as Array<number>[][],
         physicalSignals = [] as Array<number>[][],
-        annotations = [] as AnnotationTemplate[],
-        dataGaps = new Map() as SignalDataGapMap,
+        events = [] as AnnotationEventTemplate[],
+        interruptions = new Map() as SignalInterruptionMap,
         fileType = 'edf'
     ) {
         // Calculate record size.
@@ -42,23 +42,22 @@ export default class EdfRecording extends GenericBiosignalHeader {
             if (sigSr > maxSr) {
                 maxSr = sigSr
             }
-            // Try to parse prefiltering field.
             signalProps.push({
                 label: sig.label,
+                modality: extractSignalModality(sig),
                 name: sig.label,
                 physicalUnit: sig.physicalUnit,
-                prefiltering: EdfDecoder.ParsePrefiltering(sig.prefiltering),
+                prefiltering: parsePrefiltering(sig.prefiltering),
                 sampleCount: sig.sampleCount,
                 samplingRate: sigSr,
                 sensitivity: 0,
-                type: EdfDecoder.ExtractSignalType(sig),
             } as BiosignalHeaderSignal)
         }
         super(
             header.isPlus ? `${fileType}+` : fileType, header.localRecordingId, header.patientId,
             header.dataRecordCount, header.dataRecordDuration, dataRecordSize,
             header.signalCount, signalProps, header.recordingDate,
-            header.discontinuous, annotations, dataGaps
+            header.discontinuous, events, [], interruptions
         )
         this._header = header
         for (const sigSet of physicalSignals) {
@@ -264,7 +263,7 @@ export default class EdfRecording extends GenericBiosignalHeader {
             Log.warn(`Signal index ${index} is out of range, cannot return signal prefiltering.`, SCOPE)
             return null
         }
-        return EdfDecoder.ParsePrefiltering(this._header.signalInfo[index].prefiltering)
+        return parsePrefiltering(this._header.signalInfo[index].prefiltering)
     }
 
     /**

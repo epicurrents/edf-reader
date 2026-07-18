@@ -11,22 +11,22 @@
  * @license    Apache-2.0
  */
 
-import { GenericAsset, GenericBiosignalHeader } from '@epicurrents/core'
+import { GenericAsset } from '@epicurrents/core'
 import {
     floatsAreEqual,
+    getSignalScale,
     NUMERIC_ERROR_VALUE,
     safeObjectFrom ,
 } from '@epicurrents/core/dist/util'
-import EdfRecording from './EdfRecording'
-import {
-    type AnnotationTemplate,
-    type BiosignalFilters,
-    type FileDecoder,
-    type SignalDataGapMap,
+import EdfHeaderRecord from '#edf/EdfHeaderRecord'
+import type {
+    AnnotationEventTemplate,
+    FileDecoder,
+    SignalInterruptionMap,
 } from '@epicurrents/core/dist/types'
 import { type EdfHeader, type EdfSignalInfo } from '#types'
 import { unpackArray, unpackString } from 'byte-data'
-import Log from 'scoped-event-log'
+import { Log } from 'scoped-event-log'
 
 const SCOPE = 'EdfDecoder'
 /**
@@ -42,87 +42,7 @@ const SCOPE = 'EdfDecoder'
 export default class EdfDecoder implements FileDecoder {
     private _dataFormat = 'edf'
     private _inputBuffer = null as null | ArrayBuffer
-    private _output = null as null | EdfRecording
-    /**
-     * Try to extract the type of signal from the signal info.
-     * @param signal - Signal information from the EDF header.
-     * @param labelMatchers - A map of labels (RegExp strings) to signal types (optional).
-     * @returns Type of the signal or empty string if unsuccessful.
-     */
-    public static ExtractSignalType (signal: EdfSignalInfo, labelMatchers?: Map<string, string>): string {
-        const label = signal.label
-        const matchers = labelMatchers
-                         ? labelMatchers
-                         : new Map<string, string>()
-        // Apply a set of default label matchers after the custom matchers.
-        const defaultMatchers = [
-            // Often all signal labels in an EEG EDF export have "EEG" prefixed or mentioned,
-            // so try to match to polygraphic signals first.
-            ["emg", "emg"],
-            ["eog", "eog"],
-            ["ecg|ekg", "ekg"],
-            ["eeg", "eeg"],
-        ]
-        for (const [defLabel, defType] of defaultMatchers) {
-            if (!matchers.has(defLabel)) {
-                matchers.set(defLabel, defType)
-            }
-        }
-        for (const [matchLabel, matchType] of matchers) {
-            if (label.match(new RegExp(matchLabel))) {
-                return matchType
-            }
-        }
-        return ""
-    }
-    /**
-     * Convert the given EDF header record into generic biosignal headers.
-     * @param headers - Parsed EDF headers.
-     * @returns Biosignal header record.
-     */
-    public static HeaderToBiosignalHeader (headers: EdfHeader) {
-        const biosigHeaders = new GenericBiosignalHeader(
-            headers.dataFormat,
-            headers.patientId,
-            headers.patientId,
-            headers.dataRecordCount,
-            headers.dataRecordDuration,
-            headers.recordByteSize,
-            headers.signalCount,
-            headers.signalInfo.map(s => {
-                return {
-                    label: s.label,
-                    name: s.label,
-                    physicalUnit: s.physicalUnit,
-                    prefiltering: EdfDecoder.ParsePrefiltering(s.prefiltering),
-                    sampleCount: s.sampleCount,
-                    samplingRate: s.sampleCount/headers.dataRecordDuration,
-                    sensitivity: 0,
-                    type: EdfDecoder.ExtractSignalType(s)
-                }
-            }),
-            headers.recordingDate,
-            headers.discontinuous,
-            [],
-        )
-        return biosigHeaders
-    }
-    /**
-     * Parse EDF signal prefiltering field per the suggestion in the official EDF spec.
-     * @param prefiltering - Prefiltering information as a string.
-     * @returns Biosignal filters.
-     */
-    public static ParsePrefiltering (prefiltering: string): BiosignalFilters {
-        const filterHp = prefiltering.match(/HP:([0-9\\.]+)Hz/i)
-        const filterLp = prefiltering.match(/LP:([0-9\\.]+)Hz/i)
-        const filterNotch = prefiltering.match(/N:([0-9\\.]+)Hz/i)
-        return {
-            bandreject: [],
-            highpass: filterHp ? parseFloat(filterHp[1]) : 0,
-            lowpass: filterLp ? parseFloat(filterLp[1]) : 0,
-            notch: filterNotch ? parseFloat(filterNotch[1]) : 0,
-        }
-    }
+    private _output = null as null | EdfHeaderRecord
     /**
      * Create an EdfDecoder. If a buffer is provided, it will immediately be set as the input buffer for this decoder.
      * @param buffer - ArrayBuffer to use as input (optional).
@@ -136,7 +56,7 @@ export default class EdfDecoder implements FileDecoder {
             this._dataFormat = header.dataFormat
         }
         if (header) {
-            this._output = new EdfRecording(header, undefined, undefined, undefined, undefined, header.dataFormat)
+            this._output = new EdfHeaderRecord(header, undefined, undefined, undefined, undefined, header.dataFormat)
         }
     }
 
@@ -146,7 +66,7 @@ export default class EdfDecoder implements FileDecoder {
     * @returns The output.
     */
     get output () {
-        return this._output as EdfRecording
+        return this._output as EdfHeaderRecord
     }
 
     appendInput (buffer: ArrayBuffer) {
@@ -183,9 +103,9 @@ export default class EdfDecoder implements FileDecoder {
     * @param dataOffset - Byte size of the header or byte index of the record to start from (default is headerRecordSize from header).
     * @param startRecord - Record number at dataOffset (default 0).
     * @param range - Range of records to decode from buffer (optional, but required if a buffer is provided).
-    * @param priorOffset - Time offset of the prior data (i.e. total gap time before buffer start, optional, default 0).
+    * @param priorOffset - Time offset of the prior data (i.e. total interruption time before buffer start, optional, default 0).
     * @param returnRaw -Return the raw digital signals instead of physical signals (default false).
-    * @returns An object holding the decoded signals with possible annotations and data gaps, or null if an error occurred.
+    * @returns An object holding the decoded signals with possible annotations and data interruptions, or null if an error occurred.
     */
     decodeData (
         header: EdfHeader | null,
@@ -204,7 +124,7 @@ export default class EdfDecoder implements FileDecoder {
         } else if (header) {
             this._dataFormat = header.dataFormat
         }
-        let format = this._dataFormat.toUpperCase()
+        const format = this._dataFormat.toUpperCase()
         if (!dataBuffer) {
             Log.error(`Cannot decode ${format} data: an input buffer must be specified!`, SCOPE)
             return null
@@ -231,11 +151,12 @@ export default class EdfDecoder implements FileDecoder {
             channels: [],
             class: 'event',
             duration: 0,
-            label: '',
+            //label: '', // Use value as label.
             priority: 0,
             start: 0,
             text: '',
-        } as AnnotationTemplate
+            value: '',
+        } as AnnotationEventTemplate
         // Annotation parsing helper methods.
         type AnnotationFields = {
             /** Data record start time in seconds. */
@@ -335,7 +256,7 @@ export default class EdfDecoder implements FileDecoder {
         const rawSignals = new Array(useHeaders.signalCount) as Array<number>[][]
         const physicalSignals = new Array(useHeaders.signalCount) as Array<number>[][]
         const nDataRecords = Math.round(range ? range : useHeaders.dataRecordCount)
-        const annotations = [] as AnnotationTemplate[]
+        const annotations = [] as AnnotationEventTemplate[]
         const annotationSignals = [] as number[]
         const annoSignalLabel = `${this._dataFormat.substring(0, 3)} annotations`
         // Allocate elements for signals, marking possible EDF Annotations channels.
@@ -349,7 +270,7 @@ export default class EdfDecoder implements FileDecoder {
             rawSignals[i] = new Array(nDataRecords) as Array<number>[]
             physicalSignals[i] = new Array(nDataRecords) as Array<number>[]
         }
-        const dataGaps = new Map<number, number>() as SignalDataGapMap
+        const interruptions = new Map<number, number>() as SignalInterruptionMap
         let startCorrection = 0
         if (dataOffset === -1) {
             dataOffset = useHeaders.headerRecordBytes
@@ -363,18 +284,19 @@ export default class EdfDecoder implements FileDecoder {
                 const sigInfo = useHeaders.signalInfo[i]
                 const nSamples = sigInfo.sampleCount
                 const nBytes = nSamples*(sampleType.bytesPerElement)
+                const scale = getSignalScale(sigInfo.physicalUnit)
                 let isAnnotation = false
                 // Process annotation signal differently.
                 if (annotationSignals.includes(i)) {
                     const parsed = getAnnotationFields(dataOffset, nBytes, recAnnotations || undefined)
                     const dataPos = (startRecord + r)*useHeaders.dataRecordDuration
-                    // Save possible discontinuity in signal data as data gap.
+                    // Save possible discontinuity in signal data as an interruption.
                     // Avoid floating point precision errors.
                     const equalToPrecision = floatsAreEqual(parsed.recordStart, expectedRecordStart, 16)
                     if (useHeaders.discontinuous && parsed.recordStart > expectedRecordStart && !equalToPrecision) {
-                        // We must use data time instead of recording time as gap start position because the data record
-                        // timestamp cannot always be trusted.
-                        dataGaps.set(dataPos, parsed.recordStart - expectedRecordStart)
+                        // We must use data time instead of recording time as interruption start position because the
+                        // data record timestamp cannot always be trusted.
+                        interruptions.set(dataPos, parsed.recordStart - expectedRecordStart)
                         priorOffset += parsed.recordStart - expectedRecordStart
                     } else if (parsed.recordStart < expectedRecordStart + startCorrection && !equalToPrecision) {
                         Log.warn(
@@ -402,19 +324,22 @@ export default class EdfDecoder implements FileDecoder {
                     dataOffset,
                     dataOffset + nBytes
                 )
-                rawSignals[i][r] = rawSignal
-                // Convert digital signal to physical signal.
-                const physicalSignal = new Array<number>(rawSignal.length).fill(0)
-                if (!isAnnotation) {
-                    for (let index=0; index<nSamples; index++) {
-                        // https://edfrw.readthedocs.io/en/latest/specifications.html#converting-digital-samples-to-physical-dimensions
-                        physicalSignal[index] = sigInfo.unitsPerBit * (rawSignal[index] + sigInfo.digitalOffset)
-                            //(
-                            //    ((rawSignal[index] - sigInfo.digitalMinimum) / digitalSignalRange )*physicalSignalRange
-                            //) + sigInfo.physicalMinimum
+                if (returnRaw) {
+                    rawSignals[i][r] = rawSignal
+                } else {
+                    // Convert digital signal to physical signal.
+                    const physicalSignal = new Array<number>(rawSignal.length).fill(0)
+                    if (!isAnnotation) {
+                        for (let index=0; index<nSamples; index++) {
+                            // https://edfrw.readthedocs.io/en/latest/specifications.html#converting-digital-samples-to-physical-dimensions
+                            physicalSignal[index] = sigInfo.unitsPerBit*(rawSignal[index] + sigInfo.digitalOffset)*scale
+                                //(
+                                //    ((rawSignal[index] - sigInfo.digitalMinimum) / digitalSignalRange )*physicalSignalRange
+                                //) + sigInfo.physicalMinimum
+                        }
                     }
+                    physicalSignals[i][r] = physicalSignal
                 }
-                physicalSignals[i][r] = physicalSignal
                 dataOffset += nBytes
             }
             // Add parsed annotations.
@@ -431,29 +356,19 @@ export default class EdfDecoder implements FileDecoder {
                 }
             }
         }
-        if (!buffer) {
-            // Refresh output with actual signal data.
-            this._output = new EdfRecording(
-                useHeaders,
-                returnRaw ? rawSignals : [],
-                returnRaw ? [] : physicalSignals,
-                annotations,
-                dataGaps,
-                this._dataFormat
-            )
-        } else {
-            // Add possible parsed annotations and data gaps.
-            if (annotations.length) {
-                this._output?.addAnnotations(...annotations)
-            }
-            if (dataGaps.size) {
-                this._output?.addDataGaps(dataGaps)
-            }
-        }
+        // Update output object.
+        this._output = new EdfHeaderRecord(
+            useHeaders,
+            [],
+            [],
+            annotations,
+            interruptions,
+            this._dataFormat
+        )
         // If more than one record was requested, we need to concatenate the response signal for each channel from the set of decoded signal records.
         return {
-            annotations: annotations,
-            dataGaps: dataGaps,
+            events: annotations,
+            interruptions: interruptions,
             signals: returnRaw ? rawSignals.map((sigSet) => { return sigSet.flat() })
                                : physicalSignals.map((sigSet) => { return sigSet.flat() }),
         }
@@ -511,7 +426,7 @@ export default class EdfDecoder implements FileDecoder {
             }
             Log.debug(`Data format is ${format}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse data format ${format} header field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse data format ${format} header field: ${(e as Error).message}.`, SCOPE, e as Error)
             return null
         }
         offset += 8
@@ -524,7 +439,7 @@ export default class EdfDecoder implements FileDecoder {
             header.patientId = patientId.trim()
             Log.debug(`Patient ID is ${header.patientId}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse patient ID ${format} header field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse patient ID ${format} header field: ${(e as Error).message}.`, SCOPE, e as Error)
         }
         offset += 80
         try {
@@ -536,7 +451,11 @@ export default class EdfDecoder implements FileDecoder {
             header.localRecordingId = localRecordingId.trim()
             Log.debug(`Local recording ID is ${header.localRecordingId}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse local recording ID ${format} header field!`, SCOPE, e as Error)
+            Log.error(
+                `Failed to parse local recording ID ${format} header field: ${(e as Error).message}.`,
+                SCOPE,
+                e as Error
+            )
         }
         offset += 80
         try {
@@ -577,7 +496,11 @@ export default class EdfDecoder implements FileDecoder {
             )
             Log.debug(`Starting datetime is ${header.recordingDate.toDateString()}.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse starting date/time ${format} header field!`, SCOPE, e as Error)
+            Log.error(
+                `Failed to parse starting date/time ${format} header field: ${(e as Error).message}.`,
+                SCOPE,
+                e as Error
+            )
             offset += 16
         }
         try {
@@ -593,7 +516,7 @@ export default class EdfDecoder implements FileDecoder {
             Log.debug(`Header record size is ${header.headerRecordBytes} bytes.`, SCOPE)
         } catch (e: unknown) {
             // Number of bytes can be calculated manually as well.
-            Log.error(`Failed to parse ${format} header record size field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse ${format} header record size field: ${(e as Error).message}.`, SCOPE, e as Error)
         }
         offset += 8
         try {
@@ -615,7 +538,7 @@ export default class EdfDecoder implements FileDecoder {
                 }
             }
         } catch (e: unknown) {
-            Log.error(`Failed to parse reserved ${format} header field!`, SCOPE, e as Error)
+            Log.error(`Failed to parse reserved ${format} header field: ${(e as Error).message}.`, SCOPE, e as Error)
         }
         offset += 44
         try {
@@ -634,7 +557,11 @@ export default class EdfDecoder implements FileDecoder {
             }
             Log.debug(`${header.dataRecordCount} data records in file.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse number of data records ${format} header field!`, SCOPE, e as Error)
+            Log.error(
+                `Failed to parse number of data records ${format} header field: ${(e as Error).message}.`,
+                SCOPE,
+                e as Error
+            )
             return null
         }
         offset += 8
@@ -653,7 +580,11 @@ export default class EdfDecoder implements FileDecoder {
             }
             Log.debug(`Data recordduration is ${header.dataRecordDuration} seconds.`, SCOPE)
         } catch (e: unknown) {
-            Log.error(`Failed to parse duration of data record ${format} header field!`, SCOPE, e as Error)
+            Log.error(
+                `Failed to parse duration of data record ${format} header field: ${(e as Error).message}.`,
+                SCOPE,
+                e as Error
+            )
             return null
         }
         offset += 8
@@ -673,14 +604,18 @@ export default class EdfDecoder implements FileDecoder {
                 Log.debug(`${header.signalCount} signals in file.`, SCOPE)
             }
         } catch (e: unknown) {
-            Log.error(`Failed to parse number of signals ${format} header field!`, SCOPE, e as Error)
+            Log.error(
+                `Failed to parse number of signals ${format} header field: ${(e as Error).message}.`,
+                SCOPE,
+                e as Error
+            )
             return null
         }
         offset += 4
         // Stop here if signals are not needed.
         if (noSignals) {
             // Generate an "empty" output object from the header information.
-            this._output = new EdfRecording(header, [], [], undefined, undefined, this._dataFormat)
+            this._output = new EdfHeaderRecord(header, [], [], undefined, undefined, this._dataFormat)
             return header
         }
         /** Parse signal info fields. */
@@ -701,7 +636,11 @@ export default class EdfDecoder implements FileDecoder {
                     }
                     allFields.push(nextField)
                 } catch (e: unknown) {
-                    Log.error(`Failed to parse signal info at index ${i} from ${format} header!`, SCOPE, e as Error)
+                    Log.error(
+                        `Failed to parse signal info at index ${i} from ${format} header: ${(e as Error).message}.`,
+                        SCOPE,
+                        e as Error
+                    )
                     return []
                 }
                 offset += sectionBytes
@@ -769,7 +708,7 @@ export default class EdfDecoder implements FileDecoder {
             SCOPE)
         }
         // Generate an "empty" output object from the header information.
-        this._output = new EdfRecording(header, undefined, undefined, undefined, undefined, this._dataFormat)
+        this._output = new EdfHeaderRecord(header, undefined, undefined, undefined, undefined, this._dataFormat)
         return header
     }
 

@@ -1,13 +1,23 @@
-import EdfDecoder from './edf/EdfDecoder'
-import EdfProcesser from './edf/EdfProcesser'
-import EdfReader from './edf/EdfReader'
-import EdfRecording from './edf/EdfRecording'
-import EdfWorkerSubstitute from './edf/EdfWorkerSubstitute'
+import {
+    EdfDecoder,
+    EdfEncoder,
+    EdfExporter,
+    EdfHeaderRecord,
+    EdfImporter,
+    EdfReader,
+    EdfWorkerSubstitute,
+    EdfWriter,
+    encodePayload,
+} from './edf'
 
 export {
     EdfDecoder,
-    EdfProcesser,
+    EdfEncoder,
+    EdfExporter,
+    EdfHeaderRecord,
+    EdfImporter,
     EdfReader,
-    EdfRecording,
     EdfWorkerSubstitute,
+    EdfWriter,
+    encodePayload,
 }

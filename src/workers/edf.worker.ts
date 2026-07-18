@@ -10,19 +10,20 @@
  */
 
 import { SETTINGS } from '@epicurrents/core'
-import {
-    type BiosignalHeaderRecord,
-    type ConfigChannelFilter,
-    type WorkerMessage,
+import type {
+    AppSettings,
+    BiosignalHeaderRecord,
+    ConfigChannelFilter,
+    WorkerMessage,
 } from '@epicurrents/core/dist/types'
-import EdfProcesser from '../edf/EdfProcesser'
-import { type EdfHeader } from '#types'
+import EdfReader from '#edf/EdfReader'
+import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 
 const SCOPE = "EdfWorker"
 
-const PROCESSER = new EdfProcesser(SETTINGS)
+const READER = new EdfReader(SETTINGS)
 
 onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {
@@ -48,20 +49,23 @@ onmessage = async (message: WorkerMessage) => {
         })
     }
     Log.debug(`Received message with action ${action}.`, SCOPE)
-    if (action === 'cache-signals-from-url') {
+    if (action === 'cache-signals') {
         try {
-            const success = await cacheSignalsFromUrl()
+            const startFrom = typeof (message.data as { startFrom?: number })?.startFrom === 'number'
+                ? (message.data as { startFrom?: number }).startFrom
+                : 0
+            const success = await cacheSignals(startFrom)
             return returnSuccess({ complete: success })
-        } catch (e) {
+        } catch (e: unknown) {
             Log.error(
-                `An error occurred while trying to cache signals, operation was aborted.`,
+                `An error occurred while trying to cache signals, operation was aborted: ${(e as Error).message}.`,
             SCOPE, e as Error)
         }
     } else if (action === 'get-signals') {
         // The direct get-signals should only be encountered when the requested signals have not been cached yet,
         // so whenever raw signals are requested and very rarely in other cases. Thus no need to use a lot of
         // time to optimize this method.
-        if (!PROCESSER.cacheReady) {
+        if (!READER.cacheReady) {
             return returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
         }
         const data = validateCommissionProps(
@@ -70,7 +74,7 @@ onmessage = async (message: WorkerMessage) => {
                 range: number[]
             },
             {
-                config: ['Object', 'undefined'],
+                config: 'Object?',
                 range: ['Number', 'Number'],
             }
         )
@@ -80,21 +84,22 @@ onmessage = async (message: WorkerMessage) => {
         try {
             const sigs = await getSignals(data.range, data.config)
             const annos = getAnnotations(data.range)
-            const gaps = getDataGaps(data.range)
+            const interruptions = getInterruptions(data.range)
             if (sigs) {
                 return returnSuccess({
                     annotations: annos,
-                    dataGaps: gaps,
+                    interruptions: interruptions,
                     range: message.data.range,
                     ...sigs
                 })
             } else {
                 return returnFailure(`Reader did not return any signals.`)
             }
-        } catch (e) {
-            return returnFailure(e as string)
+        } catch (e: unknown) {
+            return returnFailure((e as Error).message)
         }
     } else if (action === 'setup-cache') {
+        const derivationSlots = (message.data.derivationSlots as unknown[] | undefined) ?? []
         if (message.data.useMemoryManager) {
             const data = validateCommissionProps(
                 message.data as WorkerMessage['data'] & {
@@ -109,7 +114,11 @@ onmessage = async (message: WorkerMessage) => {
             if (!data) {
                 return
             }
-            const exportProps = await PROCESSER.setupMutex(data.buffer, data.range.start)
+            const exportProps = await READER.setupMutex(
+                data.buffer,
+                data.range.start,
+                derivationSlots as Parameters<typeof READER.setupMutex>[2],
+            )
             if (exportProps) {
                 // Pass the generated shared buffers back to main thread.
                 return returnSuccess({
@@ -121,7 +130,10 @@ onmessage = async (message: WorkerMessage) => {
         } else {
             // Duration is not a mandatory property.
             const duration = (message.data.dataDuration as number) || 0
-            const success = PROCESSER.setupCache(duration)
+            const success = READER.setupCache(
+                duration,
+                derivationSlots as Parameters<typeof READER.setupCache>[1],
+            )
             if (success) {
                 return returnSuccess()
             } else {
@@ -129,7 +141,14 @@ onmessage = async (message: WorkerMessage) => {
             }
         }
     } else if (action === 'release-cache') {
-        await PROCESSER.releaseCache()
+        await READER.releaseCache()
+        return returnSuccess()
+    } else if (action === 'release-signal-arrays') {
+        // Level 1 of the three-level cache lifecycle: cancel in-flight caching
+        // processes and release the mutex's signal-array views, but keep the
+        // mutex layout so it can be cheaply rebound via `initSignalBuffers(...,
+        // overwrite=true)` on re-activation.
+        await READER.releaseSignalArrays()
         return returnSuccess()
     } else if (action === 'setup-worker') {
         const data = validateCommissionProps(
@@ -137,26 +156,38 @@ onmessage = async (message: WorkerMessage) => {
                 formatHeader: EdfHeader
                 header: BiosignalHeaderRecord
                 url: string
+                authHeader?: string
+                settingsApp?: Partial<AppSettings['app']>
             },
             {
                 formatHeader: 'Object',
                 header: 'Object',
                 url: 'String',
+                authHeader: 'String?',
+                settingsApp: 'Object?',
             }
         )
         if (!data) {
             return returnFailure(`Validating commission props failed.`)
         }
-        if (await setupStudy(data.header, data.formatHeader, data.url)) {
+        // Apply the main-thread snapshot of app settings (sent by EegService.setupWorker) before
+        // any work that depends on them runs. `_buildDataBlocks` in particular reads
+        // `maxLoadCacheSize` and `dataBlockDuration` from `SETTINGS.app` to decide whether to use
+        // the rolling-window cache; if those still hold the bundled defaults instead of the user's
+        // configuration, the worker's decision diverges from the main thread's.
+        if (data.settingsApp) {
+            Object.assign(SETTINGS.app, data.settingsApp)
+        }
+        if (await setupStudy(data.header, data.formatHeader, data.url, data.authHeader)) {
             return returnSuccess({
-                dataLength: PROCESSER.dataLength,
-                recordingLength: PROCESSER.totalLength,
+                dataLength: READER.dataLength,
+                recordingLength: READER.totalLength,
             })
         } else {
             return returnFailure(`Setting up study failed.`)
         }
     } else if (action === 'shutdown') {
-        await PROCESSER.releaseCache()
+        await READER.releaseCache()
     } else if (action === 'update-settings') {
         const data = validateCommissionProps(
             message.data,
@@ -177,18 +208,19 @@ const updateCallback = (update: { [prop: string]: unknown }) => {
         postMessage(update)
     }
 }
-PROCESSER.setUpdateCallback(updateCallback)
+READER.setUpdateCallback(updateCallback)
 
 const getAnnotations = (range: number[]) => {
-    return PROCESSER.getAnnotations(range)
+    // EDF only supports events.
+    return READER.getEvents(range)
 }
 
-const getDataGaps = (range: number[]) => {
-    return PROCESSER.getDataGaps(range)
+const getInterruptions = (range: number[]) => {
+    return READER.getInterruptions(range)
 }
 
 const getSignals = (range: number[], config?: ConfigChannelFilter) => {
-    return PROCESSER.getSignals(range, config)
+    return READER.getSignals(range, config)
 }
 
 /**
@@ -196,10 +228,10 @@ const getSignals = (range: number[], config?: ConfigChannelFilter) => {
  * @param startFrom - Start caching from the given time point (in seconds) - optional.
  * @returns Success (true/false).
  */
-const cacheSignalsFromUrl = (startFrom = 0) => {
-    return PROCESSER.cacheSignalsFromUrl(startFrom)
+const cacheSignals = (startFrom = 0) => {
+    return READER.cacheSignals(startFrom)
 }
 
-const setupStudy = async (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string) => {
-    return PROCESSER.setupStudy(header, edfHeader, url)
+const setupStudy = async (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string, authHeader?: string) => {
+    return READER.setupStudy(header, edfHeader, url, authHeader)
 }
