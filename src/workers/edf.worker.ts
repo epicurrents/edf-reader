@@ -207,6 +207,26 @@ onmessage = async (message: WorkerMessage) => {
         } else {
             return returnFailure(`Repositioning buffer views failed in the worker.`)
         }
+    } else if (action === 'set-interruptions') {
+        // Replace the reader's interruption table from external metadata. With `complete: true`
+        // the table is trusted to cover the whole recording, which lifts the explored-span
+        // navigation restriction on discontinuous files. Must arrive after setup-worker — the
+        // EDF duration probe during study setup clears the discovered table.
+        const data = validateCommissionProps(
+            message.data as WorkerMessage['data'] & {
+                complete?: boolean
+                interruptions: [number, number][]
+            },
+            {
+                complete: 'Boolean?',
+                interruptions: 'Array',
+            }
+        )
+        if (!data) {
+            return
+        }
+        READER.setInterruptions(new Map(data.interruptions), data.complete ?? false)
+        return returnSuccess()
     } else if (action === 'release-signal-arrays') {
         // Level 1 of the three-level cache lifecycle: cancel in-flight caching
         // processes and release the mutex's signal-array views, but keep the

@@ -140,6 +140,25 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 }
                 return
             }
+            case 'set-interruptions': {
+                const data = validateCommissionProps(
+                    message as WorkerMessage['data'] & {
+                        complete?: boolean
+                        interruptions: [number, number][]
+                    },
+                    {
+                        complete: 'Boolean?',
+                        interruptions: 'Array',
+                    },
+                    true,
+                    this.returnMessage.bind(this)
+                )
+                if (!data) {
+                    return
+                }
+                this._reader.setInterruptions(new Map(data.interruptions), data.complete ?? false)
+                return this.returnSuccess(message)
+            }
             case 'setup-cache': {
                 // Duration is not a mandatory property.
                 const duration = (message.dataDuration as number) || 0
