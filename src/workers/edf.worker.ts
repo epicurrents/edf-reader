@@ -16,6 +16,7 @@ import type {
     ConfigChannelFilter,
     WorkerMessage,
 } from '@epicurrents/core/dist/types'
+import type { BufferRangeMove } from 'asymmetric-io-mutex'
 import EdfReader from '#edf/EdfReader'
 import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'
@@ -143,6 +144,26 @@ onmessage = async (message: WorkerMessage) => {
     } else if (action === 'release-cache') {
         await READER.releaseCache()
         return returnSuccess()
+    } else if (action === 'set-buffer-range') {
+        // The memory manager has rearranged the shared buffer: reposition the reader's own
+        // buffer views to the (possibly moved) allocated range. A failure here means the
+        // worker's views no longer match the manager's bookkeeping and must be treated as a
+        // hard error by the caller.
+        const data = validateCommissionProps(
+            message.data as WorkerMessage['data'] & { range?: number[], moves?: BufferRangeMove[] },
+            {
+                range: 'Array?',
+                moves: 'Array?',
+            }
+        )
+        if (!data) {
+            return
+        }
+        if (READER.setBufferRange(data.range, data.moves)) {
+            return returnSuccess()
+        } else {
+            return returnFailure(`Repositioning buffer views failed in the worker.`)
+        }
     } else if (action === 'release-signal-arrays') {
         // Level 1 of the three-level cache lifecycle: cancel in-flight caching
         // processes and release the mutex's signal-array views, but keep the
