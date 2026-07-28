@@ -14,6 +14,7 @@ import type {
     AppSettings,
     BiosignalHeaderRecord,
     ConfigChannelFilter,
+    SignalRequest,
     WorkerMessage,
 } from '@epicurrents/core/dist/types'
 import type { BufferRangeMove } from 'asymmetric-io-mutex'
@@ -99,6 +100,48 @@ onmessage = async (message: WorkerMessage) => {
         } catch (e: unknown) {
             return returnFailure((e as Error).message)
         }
+    } else if (action === 'request-signals') {
+        if (!READER.cacheReady) {
+            return returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
+        }
+        const data = validateCommissionProps(
+            message.data as WorkerMessage['data'] & {
+                config?: ConfigChannelFilter
+                range: number[]
+                stream?: string
+            },
+            {
+                config: 'Object?',
+                range: ['Number', 'Number'],
+                stream: 'String?',
+            }
+        )
+        if (!data) {
+            return
+        }
+        // Two-stage response protocol: promises cannot cross postMessage, so a non-terminal
+        // state is posted with `final: false` and the terminal state follows (same rn) once the
+        // request's ready promise settles. A terminal first state is posted alone.
+        const postStage = (result: SignalRequest, final: boolean) => {
+            const part = 'part' in result ? result.part : null
+            postMessage({
+                rn: rn,
+                action: action,
+                success: true,
+                status: result.status,
+                final: final,
+                ...(part ? { start: part.start, end: part.end, signals: part.signals } : {}),
+                ...(result.status === 'error' ? { reason: result.reason } : {}),
+            })
+        }
+        const request = await READER.requestSignals(data.range, data.config, data.stream ?? 'view')
+        if (request.status === 'pending' || request.status === 'partial') {
+            postStage(request, false)
+            postStage(await request.ready, true)
+        } else {
+            postStage(request, true)
+        }
+        return
     } else if (action === 'setup-cache') {
         const derivationSlots = (message.data.derivationSlots as unknown[] | undefined) ?? []
         if (message.data.useMemoryManager) {

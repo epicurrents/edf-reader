@@ -12,6 +12,7 @@ import {
     type BiosignalHeaderRecord,
     type ConfigChannelFilter,
     type GetSignalsResponse,
+    type SignalRequest,
     type WorkerMessage,
 } from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-event-log'
@@ -98,6 +99,46 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             case 'release-cache': {
                 this._reader.releaseCache()
                 return this.returnSuccess(message)
+            }
+            case 'request-signals': {
+                const data = validateCommissionProps(
+                    message as WorkerMessage['data'] & {
+                        config?: ConfigChannelFilter
+                        range: number[]
+                        stream?: string
+                    },
+                    {
+                        config: 'Object?',
+                        range: ['Number', 'Number'],
+                        stream: 'String?',
+                    },
+                    true,
+                    this.returnMessage.bind(this)
+                )
+                if (!data) {
+                    return
+                }
+                // Two-stage response protocol, mirroring the real worker: a non-terminal state is
+                // returned with `final: false` and the terminal state follows (same rn) once the
+                // request's ready promise settles.
+                const postStage = (result: SignalRequest, final: boolean) => {
+                    const part = 'part' in result ? result.part : null
+                    this.returnSuccess({
+                        ...message,
+                        status: result.status,
+                        final: final,
+                        ...(part ? { start: part.start, end: part.end, signals: part.signals } : {}),
+                        ...(result.status === 'error' ? { reason: result.reason } : {}),
+                    })
+                }
+                const request = await this._reader.requestSignals(data.range, data.config, data.stream ?? 'view')
+                if (request.status === 'pending' || request.status === 'partial') {
+                    postStage(request, false)
+                    postStage(await request.ready, true)
+                } else {
+                    postStage(request, true)
+                }
+                return
             }
             case 'setup-cache': {
                 // Duration is not a mandatory property.
