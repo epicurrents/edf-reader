@@ -59,9 +59,9 @@ onmessage = async (message: WorkerMessage) => {
             const success = await cacheSignals(startFrom)
             return returnSuccess({ complete: success })
         } catch (e: unknown) {
-            Log.error(
-                `An error occurred while trying to cache signals, operation was aborted: ${(e as Error).message}.`,
-            SCOPE, e as Error)
+            // Any failure here (abort, decode, mutex insert) must still settle the commission,
+            // or the main-thread caller awaits it forever.
+            return returnFailure(`Caching signals failed: ${(e as Error).message}.`)
         }
     } else if (action === 'get-signals') {
         // The direct get-signals should only be encountered when the requested signals have not been cached yet,
@@ -134,12 +134,16 @@ onmessage = async (message: WorkerMessage) => {
                 ...(result.status === 'error' ? { reason: result.reason } : {}),
             })
         }
-        const request = await READER.requestSignals(data.range, data.config, data.stream ?? 'view')
-        if (request.status === 'pending' || request.status === 'partial') {
-            postStage(request, false)
-            postStage(await request.ready, true)
-        } else {
-            postStage(request, true)
+        try {
+            const request = await READER.requestSignals(data.range, data.config, data.stream ?? 'view')
+            if (request.status === 'pending' || request.status === 'partial') {
+                postStage(request, false)
+                postStage(await request.ready, true)
+            } else {
+                postStage(request, true)
+            }
+        } catch (e: unknown) {
+            return returnFailure(`Requesting signals failed: ${(e as Error).message}.`)
         }
         return
     } else if (action === 'setup-cache') {
@@ -262,13 +266,17 @@ onmessage = async (message: WorkerMessage) => {
         if (data.settingsApp) {
             Object.assign(SETTINGS.app, data.settingsApp)
         }
-        if (await setupStudy(data.header, data.formatHeader, data.url, data.authHeader)) {
-            return returnSuccess({
-                dataLength: READER.dataLength,
-                recordingLength: READER.totalLength,
-            })
-        } else {
-            return returnFailure(`Setting up study failed.`)
+        try {
+            if (await setupStudy(data.header, data.formatHeader, data.url, data.authHeader)) {
+                return returnSuccess({
+                    dataLength: READER.dataLength,
+                    recordingLength: READER.totalLength,
+                })
+            } else {
+                return returnFailure(`Setting up study failed.`)
+            }
+        } catch (e: unknown) {
+            return returnFailure(`Setting up study failed: ${(e as Error).message}.`)
         }
     } else if (action === 'shutdown') {
         await READER.releaseCache()

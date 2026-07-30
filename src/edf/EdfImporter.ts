@@ -166,6 +166,11 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
             const mainHeader = await fetch(url, {
                 headers: headers,
             })
+            if (!mainHeader.ok) {
+                // An error body (auth page, 5xx) must not be parsed as an EDF header — a garbage
+                // signalCount would otherwise drive a wrong/huge second range request.
+                throw new Error(`Header request failed with HTTP ${mainHeader.status}.`)
+            }
             const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
             if (!edfHeader) {
                 Log.error(`Could not load ${fileDesig} header from the given URL.`, SCOPE)
@@ -179,6 +184,9 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
             const fullHeader = await fetch(url, {
                 headers: headers,
             })
+            if (!fullHeader.ok) {
+                throw new Error(`Signal-info request failed with HTTP ${fullHeader.status}.`)
+            }
             await this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
         } catch (e: unknown) {
             Log.error(`${fileDesig} header parsing error: ${(e as Error).message}.`, SCOPE, e as Error)
