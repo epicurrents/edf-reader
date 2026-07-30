@@ -21,11 +21,15 @@ import type { BufferRangeMove } from 'asymmetric-io-mutex'
 import EdfReader from '#edf/EdfReader'
 import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'
-import { validateCommissionProps } from '@epicurrents/core/dist/util'
+import { networkBreakers, setNetworkStatusHandler, validateCommissionProps } from '@epicurrents/core/dist/util'
 
 const SCOPE = "EdfWorker"
 
 const READER = new EdfReader(SETTINGS)
+
+// Surface this worker's per-origin breaker transitions to the service on the main thread, which
+// re-emits them for the interface / platform (reconnecting, session-expired).
+setNetworkStatusHandler((origin, state) => postMessage({ action: 'network-status', origin, state }))
 
 onmessage = async (message: WorkerMessage) => {
     if (!message?.data?.action) {
@@ -280,6 +284,11 @@ onmessage = async (message: WorkerMessage) => {
         }
     } else if (action === 'shutdown') {
         await READER.releaseCache()
+    } else if (action === 'reset-network') {
+        // Fire-and-forget from the service after re-authentication (no rn, no reply expected):
+        // clear this worker's breakers so the next block load is attempted afresh.
+        networkBreakers.reset(message.data.origin as string | undefined)
+        return
     } else if (action === 'update-settings') {
         const data = validateCommissionProps(
             message.data,
