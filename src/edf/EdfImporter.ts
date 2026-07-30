@@ -157,37 +157,24 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
             url: config?.url || url,
         } as StudyContextFile
         try {
-            // Load header part from the EDF file into the study.
-            const headers = new Headers()
-            headers.set('range', 'bytes=0-255')
-            if (config?.authHeader) {
-                headers.set('Authorization', config.authHeader)
-            }
-            const mainHeader = await fetch(url, {
-                headers: headers,
-            })
-            if (!mainHeader.ok) {
-                // An error body (auth page, 5xx) must not be parsed as an EDF header — a garbage
-                // signalCount would otherwise drive a wrong/huge second range request.
-                throw new Error(`Header request failed with HTTP ${mainHeader.status}.`)
-            }
-            const edfHeader = await this.readHeader(await mainHeader.arrayBuffer())
+            // Load the fixed 256-byte header first. _fetchArrayBuffer checks response.ok, so an
+            // error body is never parsed as a header — a garbage signalCount would otherwise drive
+            // a wrong/huge second range request.
+            const edfHeader = await this.readHeader(
+                await this._fetchArrayBuffer(url, { authHeader: config?.authHeader, range: [0, 255] })
+            )
             if (!edfHeader) {
                 Log.error(`Could not load ${fileDesig} header from the given URL.`, SCOPE)
                 return null
             }
-            // Load full header including signal info.
-            headers.set('range', `bytes=256-${(edfHeader.signalCount + 1)*256 - 1}`)
-            if (config?.authHeader) {
-                headers.set('Authorization', config.authHeader)
-            }
-            const fullHeader = await fetch(url, {
-                headers: headers,
-            })
-            if (!fullHeader.ok) {
-                throw new Error(`Signal-info request failed with HTTP ${fullHeader.status}.`)
-            }
-            await this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
+            // Load the full header including per-signal info, sized from the signal count.
+            await this._readSignalInfo(
+                await this._fetchArrayBuffer(url, {
+                    authHeader: config?.authHeader,
+                    range: [256, (edfHeader.signalCount + 1)*256 - 1],
+                }),
+                config?.signalReader,
+            )
         } catch (e: unknown) {
             Log.error(`${fileDesig} header parsing error: ${(e as Error).message}.`, SCOPE, e as Error)
             return null
