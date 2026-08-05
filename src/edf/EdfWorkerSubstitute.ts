@@ -173,14 +173,19 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                     message as WorkerMessage['data'] & {
                         formatHeader: EdfHeader
                         header: BiosignalHeaderRecord
-                        url: string
+                        url?: string
                         authHeader?: string
+                        file?: File
                     },
                     {
                         formatHeader: 'Object',
                         header: 'Object',
-                        url: 'String',
+                        // A local study is read from the File and a remote one from the URL, so
+                        // neither can be required on its own; `setupStudy` rejects a source that
+                        // has neither.
+                        url: 'String?',
                         authHeader: 'String?',
+                        file: 'File?',
                     },
                     true,
                     this.returnMessage.bind(this)
@@ -188,7 +193,11 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 if (!data) {
                     return
                 }
-                const result = await this._reader.setupStudy(data.header, data.formatHeader, data.url, data.authHeader)
+                const result = await this._reader.setupStudy(
+                    { authHeader: data.authHeader, file: data.file, url: data.url },
+                    data.header,
+                    data.formatHeader
+                )
                 if (result) {
                     return this.returnSuccess({
                         ...message,

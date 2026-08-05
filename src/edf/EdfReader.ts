@@ -10,7 +10,8 @@ import type {
     AppSettings,
     BiosignalChannel,
     BiosignalHeaderRecord,
-    SignalDataReader,
+    SignalStudyReader,
+    SignalSourceOptions,
 } from '@epicurrents/core/dist/types'
 import type { EdfHeader } from '#types'
 import EdfDecoder from './EdfDecoder'
@@ -19,7 +20,7 @@ import { headerToBiosignalHeader } from '#util'
 
 const SCOPE = 'EdfReader'
 
-export default class EdfReader extends GenericSignalReader implements SignalDataReader {
+export default class EdfReader extends GenericSignalReader implements SignalStudyReader {
 
     protected _channels = [] as BiosignalChannel[]
     protected _decoder = null as EdfDecoder | null
@@ -54,19 +55,23 @@ export default class EdfReader extends GenericSignalReader implements SignalData
     }
 
     /**
-     * Set up study params for file loading. This will initializes the shared array buffer for storing
-     * the signal data and can only be done once. This method will send the true recording duration
-     * to the main thread as part of the worker response object (response.recordingLength).
      * @param header - General biosignal header.
      * @param edfHeader - EDF format-specific header.
-     * @param url - Source URL of the EDF data file.
-     * @param authHeader - Authorization header to include in the request - optional.
+     * @remarks
+     * The true recording duration is resolved here (a discontinuous file needs its last data record
+     * read to know it) and returned to the main thread as `response.recordingLength`.
      */
-    async setupStudy (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string, authHeader?: string) {
+    async setupStudy (source: SignalSourceOptions, header: BiosignalHeaderRecord, edfHeader: EdfHeader) {
         // Make sure there aren't any cached signals yet.
         if (this._mutex || this._fallbackCache) {
             Log.error(
                 [`Could not set study parameters.`, `Signal cache has already been initialized.`],
+            SCOPE)
+            return false
+        }
+        if (!source.file && !source.url) {
+            Log.error(
+                [`Could not set study parameters.`, `Neither a source file nor a source URL was given.`],
             SCOPE)
             return false
         }
@@ -75,9 +80,12 @@ export default class EdfReader extends GenericSignalReader implements SignalData
         this._fileTypeHeader = edfHeader
         // Initialize file loader.
         this.cacheEdfInfo(edfHeader, header.dataUnitSize)
-        this._url = url
-        if (authHeader) {
-            this._authHeader = authHeader
+        this._url = source.url || ''
+        if (source.file) {
+            this._setSourceFile(source.file)
+        }
+        if (source.authHeader) {
+            this._authHeader = source.authHeader
         }
         // Reset possible running cache processes.
         for (let i=0; i<this._cacheProcesses.length; i++) {

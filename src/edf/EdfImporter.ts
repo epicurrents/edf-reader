@@ -110,7 +110,7 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
         const file = (source as StudyFileContext).file || source as File
         const fileType = file.name.endsWith('.bdf') ? 'bdf' : 'edf'
         const fileDesig = fileType.toUpperCase()
-        Log.debug(`Loading ${fileType} from file ${file.webkitRelativePath}.`, SCOPE)
+        Log.debug(`Loading ${fileDesig} from file ${file.webkitRelativePath || file.name}.`, SCOPE)
         const studyFile = {
             file: file,
             format: fileType,

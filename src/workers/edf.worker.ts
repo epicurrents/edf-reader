@@ -15,6 +15,7 @@ import type {
     BiosignalHeaderRecord,
     ConfigChannelFilter,
     SignalRequest,
+    SignalSourceOptions,
     WorkerMessage,
 } from '@epicurrents/core/dist/types'
 import type { BufferRangeMove } from 'asymmetric-io-mutex'
@@ -247,15 +248,19 @@ onmessage = async (message: WorkerMessage) => {
             message.data as WorkerMessage['data'] & {
                 formatHeader: EdfHeader
                 header: BiosignalHeaderRecord
-                url: string
+                url?: string
                 authHeader?: string
+                file?: File
                 settingsApp?: Partial<AppSettings['app']>
             },
             {
                 formatHeader: 'Object',
                 header: 'Object',
-                url: 'String',
+                // A local study is read from the File and a remote one from the URL, so neither can
+                // be required on its own; `setupStudy` rejects a source that has neither.
+                url: 'String?',
                 authHeader: 'String?',
+                file: 'File?',
                 settingsApp: 'Object?',
             }
         )
@@ -271,7 +276,11 @@ onmessage = async (message: WorkerMessage) => {
             Object.assign(SETTINGS.app, data.settingsApp)
         }
         try {
-            if (await setupStudy(data.header, data.formatHeader, data.url, data.authHeader)) {
+            if (await setupStudy(
+                { authHeader: data.authHeader, file: data.file, url: data.url },
+                data.header,
+                data.formatHeader
+            )) {
                 return returnSuccess({
                     dataLength: READER.dataLength,
                     recordingLength: READER.totalLength,
@@ -333,6 +342,6 @@ const cacheSignals = (startFrom = 0) => {
     return READER.cacheSignals(startFrom)
 }
 
-const setupStudy = async (header: BiosignalHeaderRecord, edfHeader: EdfHeader, url: string, authHeader?: string) => {
-    return READER.setupStudy(header, edfHeader, url, authHeader)
+const setupStudy = async (source: SignalSourceOptions, header: BiosignalHeaderRecord, edfHeader: EdfHeader) => {
+    return READER.setupStudy(source, header, edfHeader)
 }
