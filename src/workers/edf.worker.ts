@@ -4,21 +4,22 @@
  * even on more powerful desktops.
  * Signal data is cached in a shared array buffer, because cloning large amounts of data between the main thread and
  * this web worker can lead to serious memory leaks if the garbage collector cannot keep up.
+ *
+ * The commissions a signal reader answers alike come from {@link SignalReaderWorker}; what is added
+ * here is `setup-worker`, the annotations and interruptions an EDF discovers while decoding, and
+ * the network-breaker handling that goes with reading a study over the wire.
  * @package    epicurrents/edf-reader
  * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
  */
 
 import { SETTINGS } from '@epicurrents/core'
+import { SignalReaderWorker } from '@epicurrents/core/dist/workers'
 import type {
     AppSettings,
     BiosignalHeaderRecord,
-    ConfigChannelFilter,
-    SignalRequest,
-    SignalSourceOptions,
     WorkerMessage,
 } from '@epicurrents/core/dist/types'
-import type { BufferRangeMove } from 'asymmetric-io-mutex'
 import EdfReader from '#edf/EdfReader'
 import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'
@@ -26,226 +27,45 @@ import { networkBreakers, setNetworkStatusHandler, validateCommissionProps } fro
 
 const SCOPE = "EdfWorker"
 
-const READER = new EdfReader(SETTINGS)
-
-// Surface this worker's per-origin breaker transitions to the service on the main thread, which
-// re-emits them for the interface / platform (reconnecting, session-expired).
-setNetworkStatusHandler((origin, state) => postMessage({ action: 'network-status', origin, state }))
-
-onmessage = async (message: WorkerMessage) => {
-    if (!message?.data?.action) {
-        return
-    }
-    const { action, rn } = message.data
-    /** Return a success response to the service. */
-    const returnSuccess = (results?: { [key: string]: unknown }) => {
-        postMessage({
-            rn: rn,
-            action: action,
-            success: true,
-            ...results
+class EdfWorker extends SignalReaderWorker<EdfReader> {
+    constructor () {
+        super(new EdfReader(SETTINGS))
+        this._reader.setUpdateCallback((update: { [prop: string]: unknown }) => {
+            if (update.action === 'cache-signals') {
+                postMessage(update)
+            }
         })
+        this.extendActionMap([['setup-worker', this.setupWorker]])
     }
-    /** Return a failure response to the service. */
-    const returnFailure = (error: string | string[]) => {
-        postMessage({
-            rn: rn,
-            action: action,
-            success: false,
-            error: error,
-        })
+
+    /**
+     * An EDF carries its annotations inside the signal stream and its interruptions in the record
+     * timing, so both are discovered while decoding and reported with the range they fall in.
+     * @param range - Range the signals were read for, in seconds of recording time.
+     */
+    protected override _signalResponseExtras (range: number[]) {
+        return {
+            annotations: this._reader.getEvents(range),
+            interruptions: this._reader.getInterruptions(range),
+        }
     }
-    Log.debug(`Received message with action ${action}.`, SCOPE)
-    if (action === 'cache-signals') {
-        try {
-            const startFrom = typeof (message.data as { startFrom?: number })?.startFrom === 'number'
-                ? (message.data as { startFrom?: number }).startFrom
-                : 0
-            const success = await cacheSignals(startFrom)
-            return returnSuccess({ complete: success })
-        } catch (e: unknown) {
-            // Any failure here (abort, decode, mutex insert) must still settle the commission,
-            // or the main-thread caller awaits it forever.
-            return returnFailure(`Caching signals failed: ${(e as Error).message}.`)
-        }
-    } else if (action === 'get-signals') {
-        // The direct get-signals should only be encountered when the requested signals have not been cached yet,
-        // so whenever raw signals are requested and very rarely in other cases. Thus no need to use a lot of
-        // time to optimize this method.
-        if (!READER.cacheReady) {
-            return returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
-        }
+
+    /**
+     * Clear this worker's breakers so the next block load is attempted afresh.
+     * @param msgData - Data property from the message to the worker.
+     */
+    override async resetNetwork (msgData: WorkerMessage['data']) {
+        networkBreakers.reset(msgData.origin as string | undefined)
+        return true
+    }
+
+    /**
+     * Open the study the commission describes.
+     * @param msgData - Data property from the message to the worker.
+     */
+    async setupWorker (msgData: WorkerMessage['data']) {
         const data = validateCommissionProps(
-            message.data as WorkerMessage['data'] & {
-                config?: ConfigChannelFilter
-                range: number[]
-            },
-            {
-                config: 'Object?',
-                range: ['Number', 'Number'],
-            }
-        )
-        if (!data) {
-            return
-        }
-        try {
-            const sigs = await getSignals(data.range, data.config)
-            const annos = getAnnotations(data.range)
-            const interruptions = getInterruptions(data.range)
-            if (sigs) {
-                return returnSuccess({
-                    annotations: annos,
-                    interruptions: interruptions,
-                    range: message.data.range,
-                    ...sigs
-                })
-            } else {
-                return returnFailure(`Reader did not return any signals.`)
-            }
-        } catch (e: unknown) {
-            return returnFailure((e as Error).message)
-        }
-    } else if (action === 'request-signals') {
-        if (!READER.cacheReady) {
-            return returnFailure(`Cannot return signals if signal cache is not yet initialized.`)
-        }
-        const data = validateCommissionProps(
-            message.data as WorkerMessage['data'] & {
-                config?: ConfigChannelFilter
-                range: number[]
-                stream?: string
-            },
-            {
-                config: 'Object?',
-                range: ['Number', 'Number'],
-                stream: 'String?',
-            }
-        )
-        if (!data) {
-            return
-        }
-        // Two-stage response protocol: promises cannot cross postMessage, so a non-terminal
-        // state is posted with `final: false` and the terminal state follows (same rn) once the
-        // request's ready promise settles. A terminal first state is posted alone.
-        const postStage = (result: SignalRequest, final: boolean) => {
-            const part = 'part' in result ? result.part : null
-            postMessage({
-                rn: rn,
-                action: action,
-                success: true,
-                status: result.status,
-                final: final,
-                ...(part ? { start: part.start, end: part.end, signals: part.signals } : {}),
-                ...(result.status === 'error' ? { reason: result.reason } : {}),
-            })
-        }
-        try {
-            const request = await READER.requestSignals(data.range, data.config, data.stream ?? 'view')
-            if (request.status === 'pending' || request.status === 'partial') {
-                postStage(request, false)
-                postStage(await request.ready, true)
-            } else {
-                postStage(request, true)
-            }
-        } catch (e: unknown) {
-            return returnFailure(`Requesting signals failed: ${(e as Error).message}.`)
-        }
-        return
-    } else if (action === 'setup-cache') {
-        const derivationSlots = (message.data.derivationSlots as unknown[] | undefined) ?? []
-        if (message.data.useMemoryManager) {
-            const data = validateCommissionProps(
-                message.data as WorkerMessage['data'] & {
-                    buffer: SharedArrayBuffer
-                    range: { start: number }
-                },
-                {
-                    buffer: 'SharedArrayBuffer',
-                    range: 'Object',
-                }
-            )
-            if (!data) {
-                return
-            }
-            const exportProps = await READER.setupMutex(
-                data.buffer,
-                data.range.start,
-                derivationSlots as Parameters<typeof READER.setupMutex>[2],
-            )
-            if (exportProps) {
-                // Pass the generated shared buffers back to main thread.
-                return returnSuccess({
-                    cacheProperties: exportProps,
-                })
-            } else {
-                return returnFailure(`Mutex setup failed.`)
-            }
-        } else {
-            // Duration is not a mandatory property.
-            const duration = (message.data.dataDuration as number) || 0
-            const success = READER.setupCache(
-                duration,
-                derivationSlots as Parameters<typeof READER.setupCache>[1],
-            )
-            if (success) {
-                return returnSuccess()
-            } else {
-                return returnFailure(`Cache setup failed.`)
-            }
-        }
-    } else if (action === 'release-cache') {
-        await READER.releaseCache()
-        return returnSuccess()
-    } else if (action === 'set-buffer-range') {
-        // The memory manager has rearranged the shared buffer: reposition the reader's own
-        // buffer views to the (possibly moved) allocated range. A failure here means the
-        // worker's views no longer match the manager's bookkeeping and must be treated as a
-        // hard error by the caller.
-        const data = validateCommissionProps(
-            message.data as WorkerMessage['data'] & { range?: number[], moves?: BufferRangeMove[] },
-            {
-                range: 'Array?',
-                moves: 'Array?',
-            }
-        )
-        if (!data) {
-            return
-        }
-        if (READER.setBufferRange(data.range, data.moves)) {
-            return returnSuccess()
-        } else {
-            return returnFailure(`Repositioning buffer views failed in the worker.`)
-        }
-    } else if (action === 'set-interruptions') {
-        // Replace the reader's interruption table from external metadata. With `complete: true`
-        // the table is trusted to cover the whole recording, which lifts the explored-span
-        // navigation restriction on discontinuous files. Must arrive after setup-worker — the
-        // EDF duration probe during study setup clears the discovered table.
-        const data = validateCommissionProps(
-            message.data as WorkerMessage['data'] & {
-                complete?: boolean
-                interruptions: [number, number][]
-            },
-            {
-                complete: 'Boolean?',
-                interruptions: 'Array',
-            }
-        )
-        if (!data) {
-            return
-        }
-        READER.setInterruptions(new Map(data.interruptions), data.complete ?? false)
-        return returnSuccess()
-    } else if (action === 'release-signal-arrays') {
-        // Level 1 of the three-level cache lifecycle: cancel in-flight caching
-        // processes and release the mutex's signal-array views, but keep the
-        // mutex layout so it can be cheaply rebound via `initSignalBuffers(...,
-        // overwrite=true)` on re-activation.
-        await READER.releaseSignalArrays()
-        return returnSuccess()
-    } else if (action === 'setup-worker') {
-        const data = validateCommissionProps(
-            message.data as WorkerMessage['data'] & {
+            msgData as WorkerMessage['data'] & {
                 formatHeader: EdfHeader
                 header: BiosignalHeaderRecord
                 url?: string
@@ -265,83 +85,45 @@ onmessage = async (message: WorkerMessage) => {
             }
         )
         if (!data) {
-            return returnFailure(`Validating commission props failed.`)
+            return this._failure(msgData, `Validating commission props failed.`)
         }
-        // Apply the main-thread snapshot of app settings (sent by EegService.setupWorker) before
-        // any work that depends on them runs. `_buildDataBlocks` in particular reads
-        // `maxLoadCacheSize` and `dataBlockDuration` from `SETTINGS.app` to decide whether to use
-        // the rolling-window cache; if those still hold the bundled defaults instead of the user's
-        // configuration, the worker's decision diverges from the main thread's.
+        // Apply the main-thread snapshot of app settings before any work that depends on them runs.
+        // `_buildDataBlocks` in particular reads `maxLoadCacheSize` and `dataBlockDuration` from
+        // `SETTINGS.app` to decide whether to use the rolling-window cache; if those still hold the
+        // bundled defaults instead of the user's configuration, the worker's decision diverges from
+        // the main thread's.
         if (data.settingsApp) {
             Object.assign(SETTINGS.app, data.settingsApp)
         }
         try {
-            if (await setupStudy(
+            const success = await this._reader.setupStudy(
                 { authHeader: data.authHeader, file: data.file, url: data.url },
                 data.header,
                 data.formatHeader
-            )) {
-                return returnSuccess({
-                    dataLength: READER.dataLength,
-                    recordingLength: READER.totalLength,
-                })
-            } else {
-                return returnFailure(`Setting up study failed.`)
+            )
+            if (!success) {
+                return this._failure(msgData, `Setting up study failed.`)
             }
+            return this._success(msgData, {
+                dataLength: this._reader.dataLength,
+                recordingLength: this._reader.totalLength,
+            })
         } catch (e: unknown) {
-            return returnFailure(`Setting up study failed: ${(e as Error).message}.`)
+            return this._failure(msgData, `Setting up study failed: ${(e as Error).message}.`)
         }
-    } else if (action === 'shutdown') {
-        await READER.releaseCache()
-    } else if (action === 'reset-network') {
-        // Fire-and-forget from the service after re-authentication (no rn, no reply expected):
-        // clear this worker's breakers so the next block load is attempted afresh.
-        networkBreakers.reset(message.data.origin as string | undefined)
+    }
+}
+
+const WORKER = new EdfWorker()
+
+// Surface this worker's per-origin breaker transitions to the service on the main thread, which
+// re-emits them for the interface / platform (reconnecting, session-expired).
+setNetworkStatusHandler((origin, state) => postMessage({ action: 'network-status', origin, state }))
+
+onmessage = async (message: WorkerMessage) => {
+    if (!message?.data?.action) {
         return
-    } else if (action === 'update-settings') {
-        const data = validateCommissionProps(
-            message.data,
-            {
-                settings: 'Object',
-            }
-        )
-        if (!data) {
-            return
-        }
-        Object.assign(SETTINGS, data.settings)
-        return returnSuccess()
     }
-}
-
-const updateCallback = (update: { [prop: string]: unknown }) => {
-    if (update.action === 'cache-signals') {
-        postMessage(update)
-    }
-}
-READER.setUpdateCallback(updateCallback)
-
-const getAnnotations = (range: number[]) => {
-    // EDF only supports events.
-    return READER.getEvents(range)
-}
-
-const getInterruptions = (range: number[]) => {
-    return READER.getInterruptions(range)
-}
-
-const getSignals = (range: number[], config?: ConfigChannelFilter) => {
-    return READER.getSignals(range, config)
-}
-
-/**
- * Cache raw signals from the file at the preset URL.
- * @param startFrom - Start caching from the given time point (in seconds) - optional.
- * @returns Success (true/false).
- */
-const cacheSignals = (startFrom = 0) => {
-    return READER.cacheSignals(startFrom)
-}
-
-const setupStudy = async (source: SignalSourceOptions, header: BiosignalHeaderRecord, edfHeader: EdfHeader) => {
-    return READER.setupStudy(source, header, edfHeader)
+    Log.debug(`Received message with action ${message.data.action}.`, SCOPE)
+    WORKER.handleMessage(message)
 }
