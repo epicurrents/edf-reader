@@ -80,6 +80,14 @@ export default class EdfReader extends GenericSignalReader implements SignalStud
         this._fileTypeHeader = edfHeader
         // Initialize file loader.
         this.cacheEdfInfo(edfHeader, header.dataUnitSize)
+        // `cacheEdfInfo` rebuilds the biosignal header from the EDF header, so any correction the
+        // loader recorded on the header it passed in is lost unless it is carried over here. A
+        // signal marked as stored with an inverted phase is negated as it is read.
+        for (let i=0; i<header.signals.length; i++) {
+            if (header.signals[i]?.invertPolarity) {
+                this._header?.setSignalPolarityInverted(true, i)
+            }
+        }
         this._url = source.url || ''
         if (source.file) {
             this._setSourceFile(source.file)
