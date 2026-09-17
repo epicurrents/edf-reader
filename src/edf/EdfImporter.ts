@@ -19,6 +19,7 @@ import EdfWorkerSubstitute from './EdfWorkerSubstitute'
 import { headerToBiosignalHeader } from '#util'
 import { ConfigReadEdfHeader, type EdfHeader, type EdfHeaderSignal } from '#types'
 import { Log } from 'scoped-event-log'
+import InlineEdfWorker from '../workers/edf.worker.ts?worker&inline'
 
 const SCOPE = 'EdfImporter'
 
@@ -95,11 +96,7 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
             return this._getWorkerSubstitute()
         }
         const getWorkerOverride = this._workerOverrides.get(override || 'edf')
-        const worker = getWorkerOverride ? getWorkerOverride() : new Worker(
-            /* webpackChunkName: 'edf.worker' */
-            new URL('../workers/edf.worker', import.meta.url),
-            { type: 'module' }
-        )
+        const worker = getWorkerOverride ? getWorkerOverride() : new InlineEdfWorker()
         if (!getWorkerOverride) {
             Log.registerWorker(worker)
         }
