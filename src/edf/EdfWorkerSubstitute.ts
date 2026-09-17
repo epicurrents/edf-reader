@@ -7,14 +7,14 @@
 
 import EdfReader from './EdfReader'
 import { ServiceWorkerSubstitute } from '@epicurrents/core'
-import { validateCommissionProps } from '@epicurrents/core/dist/util'
+import { validateCommissionProps } from '@epicurrents/core/util'
 import {
     type BiosignalHeaderRecord,
     type ConfigChannelFilter,
     type GetSignalsResponse,
     type SignalRequest,
     type WorkerMessage,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import { Log } from 'scoped-event-log'
 import { type EdfHeader } from '#types'
 

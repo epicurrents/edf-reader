@@ -14,7 +14,7 @@ import type {
     SafeObject,
     SignalCachePart,
     SignalInterruptionMap,
-} from "@epicurrents/core/dist/types"
+} from "@epicurrents/core/types"
 
 /**
  * Types of attachments that can be stored in the EDF footer.

@@ -7,7 +7,7 @@
 
 import type { EdfHeader } from '#types'
 import { GenericBiosignalHeader } from '@epicurrents/core'
-import { BiosignalFilters } from '@epicurrents/core/dist/types'
+import { BiosignalFilters } from '@epicurrents/core/types'
 
 /**
  * Try to extract the modality of signal from the signal info.

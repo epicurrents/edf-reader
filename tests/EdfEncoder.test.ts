@@ -12,7 +12,7 @@ import type {
     AnnotationEventTemplate,
     AnnotationLabelTemplate,
     BiosignalHeaderRecord,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 
 const event: AnnotationEventTemplate = {
     class: 'event',

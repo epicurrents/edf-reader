@@ -7,12 +7,12 @@
  * @license    Apache-2.0
  */
 
-import { getSignalScale } from '@epicurrents/core/dist/util'
+import { getSignalScale } from '@epicurrents/core/util'
 import type {
     AnnotationEventTemplate,
     AnnotationLabelTemplate,
     BiosignalHeaderSignal,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import EdfEncoder from './EdfEncoder'
 import type { EdfRecordingType } from '#types'
 import { Log } from 'scoped-event-log'

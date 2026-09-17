@@ -9,7 +9,7 @@ import { describe, expect, test, vi } from 'vitest'
 import EdfDecoder from '../src/edf/EdfDecoder'
 import EdfExporter from '../src/edf/EdfExporter'
 import type { EdfSidecar } from '../src/types'
-import type { BiosignalResource } from '@epicurrents/core/dist/types'
+import type { BiosignalResource } from '@epicurrents/core/types'
 
 const RECORD_COUNT = 3
 const CHANNELS = [

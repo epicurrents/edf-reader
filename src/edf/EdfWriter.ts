@@ -6,7 +6,7 @@
  */
 
 import { GenericBiosignalHeader, GenericSignalWriter } from '@epicurrents/core'
-import type { SignalInterruptionMap, SignalDataWriter, TypedNumberArray } from '@epicurrents/core/dist/types'
+import type { SignalInterruptionMap, SignalDataWriter, TypedNumberArray } from '@epicurrents/core/types'
 import EdfEncoder from './EdfEncoder'
 import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'

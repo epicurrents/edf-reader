@@ -8,7 +8,7 @@
  */
 
 import { encodePayload, type EdfEncodePayload } from '#edf/encodePayload'
-import type { WorkerMessage } from '@epicurrents/core/dist/types'
+import type { WorkerMessage } from '@epicurrents/core/types'
 import { Log } from 'scoped-event-log'
 
 const SCOPE = 'EdfWriterWorker'

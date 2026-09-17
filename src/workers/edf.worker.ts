@@ -14,16 +14,16 @@
  */
 
 import { SETTINGS } from '@epicurrents/core'
-import { SignalReaderWorker } from '@epicurrents/core/dist/workers'
+import { SignalReaderWorker } from '@epicurrents/core/workers'
 import type {
     AppSettings,
     BiosignalHeaderRecord,
     WorkerMessage,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import EdfReader from '#edf/EdfReader'
 import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'
-import { networkBreakers, setNetworkStatusHandler, validateCommissionProps } from '@epicurrents/core/dist/util'
+import { networkBreakers, setNetworkStatusHandler, validateCommissionProps } from '@epicurrents/core/util'
 
 const SCOPE = "EdfWorker"
 

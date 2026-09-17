@@ -12,7 +12,7 @@ import type {
     BiosignalResource,
     FileFormatExporter,
     MediaDataset,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import { encodePayload, type EdfEncodePayload } from './encodePayload'
 import { extractSignalModality } from '#util'
 import type { EdfRecordingType } from '#types'

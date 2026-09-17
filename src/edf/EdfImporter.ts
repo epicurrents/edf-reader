@@ -6,14 +6,14 @@
  */
 
 import { GenericBiosignalHeader, GenericStudyImporter } from '@epicurrents/core'
-import { safeObjectFrom, secondsToTimeString } from '@epicurrents/core/dist/util'
+import { safeObjectFrom, secondsToTimeString } from '@epicurrents/core/util'
 import type {
     ConfigReadSignals,
     ConfigReadUrl,
     SignalStudyImporter,
     StudyContextFile,
     StudyFileContext,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import EdfDecoder from './EdfDecoder'
 import EdfWorkerSubstitute from './EdfWorkerSubstitute'
 import { headerToBiosignalHeader } from '#util'

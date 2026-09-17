@@ -12,7 +12,7 @@ import type {
     BiosignalHeaderRecord,
     SignalStudyReader,
     SignalSourceOptions,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import type { EdfHeader } from '#types'
 import EdfDecoder from './EdfDecoder'
 import { Log } from 'scoped-event-log'

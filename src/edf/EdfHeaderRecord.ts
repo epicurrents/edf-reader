@@ -12,7 +12,7 @@ import type {
     BiosignalFilters,
     BiosignalHeaderSignal,
     SignalInterruptionMap,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'
 

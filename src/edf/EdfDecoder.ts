@@ -17,13 +17,13 @@ import {
     getSignalScale,
     NUMERIC_ERROR_VALUE,
     safeObjectFrom ,
-} from '@epicurrents/core/dist/util'
+} from '@epicurrents/core/util'
 import EdfHeaderRecord from '#edf/EdfHeaderRecord'
 import type {
     AnnotationEventTemplate,
     FileDecoder,
     SignalInterruptionMap,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import { type EdfHeader, type EdfSignalInfo } from '#types'
 import { unpackArray, unpackString } from 'byte-data'
 import { Log } from 'scoped-event-log'

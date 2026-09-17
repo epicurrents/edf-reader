@@ -19,8 +19,8 @@ import type {
     BiosignalHeaderSignal,
     SignalDataEncoder,
     SignalInterruptionMap,
-} from '@epicurrents/core/dist/types'
-import { safeObjectFrom } from '@epicurrents/core/dist/util'
+} from '@epicurrents/core/types'
+import { safeObjectFrom } from '@epicurrents/core/util'
 import { Log } from 'scoped-event-log'
 import { GenericAsset, GenericBiosignalHeader } from '@epicurrents/core'
 

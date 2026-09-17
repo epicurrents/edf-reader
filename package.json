@@ -16,8 +16,7 @@
     "prepack": "npm run build",
     "release": "npm publish --access=public",
     "test": "npm run test:unit",
-    "test:unit": "vitest run --coverage",
-    "update:core": "cd node_modules/@epicurrents/core && git pull && npm i && npm run build:tsc"
+    "test:unit": "vitest run --coverage"
   },
   "exports": {
     ".": {

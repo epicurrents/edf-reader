@@ -8,7 +8,7 @@
 import { describe, expect, test } from 'vitest'
 import EdfDecoder from '../src/edf/EdfDecoder'
 import EdfEncoder from '../src/edf/EdfEncoder'
-import type { BiosignalHeaderRecord, BiosignalHeaderSignal } from '@epicurrents/core/dist/types'
+import type { BiosignalHeaderRecord, BiosignalHeaderSignal } from '@epicurrents/core/types'
 
 const RECORD_COUNT = 3
 /** Two signals at different sampling rates, so per-record striding is actually exercised. */
