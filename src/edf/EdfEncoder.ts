@@ -214,7 +214,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         this.#header = new GenericBiosignalHeader(
             'edf',
             properties?.recordingId ?? current?.recordingId ?? 'Epicurrents EDF',
-            properties?.patientId ?? current?.patientId ?? 'Anonymous',
+            properties?.patientId ?? current?.patientId ?? 'X X X X',
             properties?.dataUnitCount ?? current?.dataUnitCount ?? 0,
             properties?.dataUnitDuration ?? current?.dataUnitDuration ?? 1,
             properties?.dataUnitSize ?? current?.dataUnitSize ?? 0,
@@ -232,18 +232,18 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
 
     /**
      * Build the serializable sidecar metadata object from the current header and footer state.
-     * @param anonymize - Blank subject identifiers and strip event/label text (structured events/labels are kept).
+     * @param deidentify - Blank subject identifiers and strip event/label text (structured events/labels are kept).
      */
-    #buildSidecarObject (anonymize: boolean): EdfSidecar {
+    #buildSidecarObject (deidentify: boolean): EdfSidecar {
         const events = this.#footer.events || []
         const labels = this.#footer.labels || []
         return {
             channels: this.#footer.channels,
-            events: anonymize ? this.#stripAnnotationText(events) : events,
+            events: deidentify ? this.#stripAnnotationText(events) : events,
             interruptions: this.#serializeInterruptions(this.#footer.interruptions),
-            labels: anonymize ? this.#stripAnnotationText(labels) : labels,
+            labels: deidentify ? this.#stripAnnotationText(labels) : labels,
             modality: this.#recordingType,
-            subject: anonymize
+            subject: deidentify
                 ? { patientId: null, recordingDate: null, recordingId: null }
                 : {
                     patientId: this.#header?.patientId ?? null,
@@ -264,14 +264,14 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         return items.map(item => ({ ...item, annotator: undefined, text: '' }))
     }
 
-    async #writeFooterBuffer (anonymize = false): Promise<ArrayBuffer | null> {
+    async #writeFooterBuffer (deidentify = false): Promise<ArrayBuffer | null> {
         this.#buffers.footer = null
         if (!this.#locked) {
             Log.error(`Cannot write footer buffer, header properties are not locked.`, SCOPE)
             return null
         }
         // Create a JSON string from the sidecar object and convert to an UTF-8 byte array.
-        const footerBytes = new TextEncoder().encode(JSON.stringify(this.#buildSidecarObject(anonymize)))
+        const footerBytes = new TextEncoder().encode(JSON.stringify(this.#buildSidecarObject(deidentify)))
         // Calculate the size of the footer in KB.
         const footerSize = Math.ceil(footerBytes.length / 1024)
         // Create an ArrayBuffer for the footer, padded to a full KB.
@@ -286,7 +286,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
      * Write the header record. With `embedFooter`, `dataBytes` is the byte size of the data records as written, which
      * the container marker names together with the header size so a reader can find the footer.
      */
-    async #writeHeaderBuffer (anonymize = false, embedFooter = false, dataBytes = 0): Promise<ArrayBuffer | null> {
+    async #writeHeaderBuffer (deidentify = false, embedFooter = false, dataBytes = 0): Promise<ArrayBuffer | null> {
         this.#buffers.header = null
         if (!this.#header) {
             Log.error(`Cannot write header buffer, current header property is empty.`, SCOPE)
@@ -310,19 +310,21 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             // Write the EDF version, padded with spaces if necessary.
             headerView.setUint8(offset++, version.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
-        // Write the local patient ID; blank it for anonymized output.
-        const patientId = anonymize ? 'X X X X' : (this.#header.patientId || 'Anonymous')
+        // Write the local patient ID; blank it for de-identified output.
+        // An unknown patient identification is written as the EDF+ unknown-subfield convention, the same as a
+        // de-identified one, since there is nothing to blank.
+        const patientId = deidentify || !this.#header.patientId ? 'X X X X' : this.#header.patientId
         for (let i = 0; i < 80; i++) {
             headerView.setUint8(offset++, patientId.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
-        // Write the local recording ID; blank it for anonymized output.
-        const recordingId = anonymize ? 'Startdate X X X X' : (this.#header.recordingId || 'Epicurrents EDF')
+        // Write the local recording ID; blank it for de-identified output.
+        const recordingId = deidentify ? 'Startdate X X X X' : (this.#header.recordingId || 'Epicurrents EDF')
         for (let i = 0; i < 80; i++) {
             headerView.setUint8(offset++, recordingId.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
         // Write the recording date.
         const headerDateTime = this.#header.recordingStartTime?.toISOString().replace(/[-:T]/g, '.').slice(0, 14)
-        const recordingDateTime = headerDateTime && !anonymize
+        const recordingDateTime = headerDateTime && !deidentify
                                 ? `${headerDateTime.slice(6, 8)}.${headerDateTime.slice(4, 6)}.${
                                     parseInt(headerDateTime.slice(0,4)) < 2084 ? headerDateTime.slice(2, 4) : 'yy'
                                     }${
@@ -384,7 +386,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             return null
         }
         // Write the label for each signal. Channel labels are technical metadata (electrode names, e.g. "EEG C3"),
-        // not subject-identifying information, and montages match on them, so they are preserved even when anonymizing.
+        // not subject-identifying information, and montages match on them, so they are preserved even when de-identifying.
         for (const [_idx, signal] of includedSignals) {
             for (let i = 0; i < 16; i++) {
                 headerView.setUint8(offset++, signal.label.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
@@ -434,7 +436,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         }
         // Write prefiltering information.
         for (const [_idx, signal] of includedSignals) {
-            // Write the prefiltering; if anonymize is true, use an empty string for unknown prefiltering.
+            // Write the prefiltering; if deidentify is true, use an empty string for unknown prefiltering.
             const prefiltering = []
             if (signal.prefiltering) {
                 if (signal.prefiltering.highpass !== null) {
@@ -567,13 +569,13 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
     }
 
     /**
-     * Build the sidecar metadata as a JSON string. This is the primary metadata artifact for anonymized exports; it
-     * carries the original (or, when anonymized, blanked) subject information, signal descriptions, events, and labels.
-     * @param options - Set `anonymize` to blank subject identifiers and strip event/label text.
+     * Build the sidecar metadata as a JSON string. This is the primary metadata artifact for de-identified exports; it
+     * carries the original (or, when de-identified, blanked) subject information, signal descriptions, events, and labels.
+     * @param options - Set `deidentify` to blank subject identifiers and strip event/label text.
      * @returns The sidecar as a JSON string.
      */
-    buildSidecar (options: { anonymize?: boolean } = {}): string {
-        return JSON.stringify(this.#buildSidecarObject(options.anonymize ?? false))
+    buildSidecar (options: { deidentify?: boolean } = {}): string {
+        return JSON.stringify(this.#buildSidecarObject(options.deidentify ?? false))
     }
 
     createHeader (properties?: Partial<BiosignalHeaderRecord>) {
@@ -615,7 +617,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             headerRecordBytes: 0,
             isPlus: false,
             localRecordingId: 'Epicurrents EDF',
-            patientId: 'Anonymous',
+            patientId: 'X X X X',
             /** Number of bytes per data record. */
             recordByteSize: 0,
             recordingDate: null,
@@ -629,19 +631,19 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         return this.#edfHeader!
     }
 
-    async encode (anonymize = false, options: EdfEncodeOptions = {}): Promise<ArrayBuffer | null> {
+    async encode (deidentify = false, options: EdfEncodeOptions = {}): Promise<ArrayBuffer | null> {
         if (!this.#header) {
             Log.error(`Cannot write to ArrayBuffer, current header property is empty.`, SCOPE)
             return null
         }
         const embedFooter = options.embedFooter ?? false
-        const embedFooterAnonymized = options.embedFooterAnonymized ?? anonymize
+        const embedFooterDeidentified = options.embedFooterDeidentified ?? deidentify
         this.#locked = true // Lock the header properties to prevent further changes.
         // Only build the embedded footer when explicitly requested; the primary export path delivers the sidecar as a
         // separate file via `buildSidecar`.
         let footerBuffer: ArrayBuffer | null = null
         if (embedFooter) {
-            footerBuffer = await this.#writeFooterBuffer(embedFooterAnonymized)
+            footerBuffer = await this.#writeFooterBuffer(embedFooterDeidentified)
             if (!footerBuffer) {
                 Log.error(`Failed to write footer buffer.`, SCOPE)
                 this.#locked = false
@@ -657,7 +659,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             return null
         }
         Log.debug(`Signal buffer written, size: ${signalBuffer.byteLength} bytes.`, SCOPE)
-        const headerBuffer = await this.#writeHeaderBuffer(anonymize, embedFooter, signalBuffer.byteLength)
+        const headerBuffer = await this.#writeHeaderBuffer(deidentify, embedFooter, signalBuffer.byteLength)
         if (!headerBuffer) {
             Log.error(`Failed to write header buffer.`, SCOPE)
             this.#locked = false

@@ -24,11 +24,11 @@ import type {
  * Attachment types:
  * - audio: Audio files, such as recordings of the patient or the environment.
  * - document: Documents related to the recording, such as reports or notes.
- * - history: Patient history and any events leading to the recording (not allowed in anonymous recordings).
+ * - history: Patient history and any events leading to the recording (not allowed in de-identified recordings).
  * - image: Images, such as photographs or screenshots.
  * - measurement: Measurements taken during/before the recording, such as physiological measurements.
  * - other: Other types of attachments that do not fit into the above categories.
- * - status: Patient status findings at the time of the recording (not allowed in anonymous recordings).
+ * - status: Patient status findings at the time of the recording (not allowed in de-identified recordings).
  * - video: Video files that are not time-synced to the recording, but are related to it.
  */
 export type AttachmentType = "audio" | "document" | "history" | "image" | "measurement" | "other" | "status" | "video"
@@ -140,10 +140,10 @@ export type EdfEncodeOptions = {
      */
     embedFooter?: boolean
     /**
-     * When embedding a footer, anonymize the embedded sidecar as well. Independent of the file-level `anonymize`
-     * flag, so an anonymized file may still embed original metadata (or vice versa). Defaults to the `anonymize` value.
+     * When embedding a footer, de-identify the embedded sidecar as well. Independent of the file-level `deidentify`
+     * flag, so a de-identified file may still embed original metadata (or vice versa). Defaults to the `deidentify` value.
      */
-    embedFooterAnonymized?: boolean
+    embedFooterDeidentified?: boolean
 }
 
 /**
@@ -162,13 +162,13 @@ export type EdfSidecar = {
     labels: AnnotationLabelTemplate[]
     /** Recording modality. */
     modality: EdfRecordingType
-    /** Subject and recording identifiers, either original or blanked when anonymized. */
+    /** Subject and recording identifiers, either original or blanked when de-identified. */
     subject: {
-        /** Local patient identification field, or null when anonymized. */
+        /** Local patient identification field, or null when de-identified. */
         patientId: string | null
-        /** Recording start date as an ISO string, or null when unknown or anonymized. */
+        /** Recording start date as an ISO string, or null when unknown or de-identified. */
         recordingDate: string | null
-        /** Local recording identification field, or null when anonymized. */
+        /** Local recording identification field, or null when de-identified. */
         recordingId: string | null
     }
     /** Sidecar schema version. */

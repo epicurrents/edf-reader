@@ -1,5 +1,5 @@
 /**
- * Epicurrents EDF encoder tests — sidecar metadata and anonymization behaviour.
+ * Epicurrents EDF encoder tests — sidecar metadata and de-identification behaviour.
  * @package    epicurrents/edf-reader
  * @copyright  2025 Sampsa Lohi
  * @license    Apache-2.0
@@ -60,8 +60,8 @@ describe('EdfEncoder sidecar', () => {
         expect(sidecar.version).toBe('1.0')
     })
 
-    test('anonymized sidecar blanks subject and strips event/label text but keeps structure', () => {
-        const sidecar = JSON.parse(makeEncoder().buildSidecar({ anonymize: true })) as EdfSidecar
+    test('de-identified sidecar blanks subject and strips event/label text but keeps structure', () => {
+        const sidecar = JSON.parse(makeEncoder().buildSidecar({ deidentify: true })) as EdfSidecar
         expect(sidecar.subject.patientId).toBeNull()
         expect(sidecar.subject.recordingId).toBeNull()
         expect(sidecar.subject.recordingDate).toBeNull()
@@ -156,14 +156,14 @@ describe('EdfEncoder embedded footer', () => {
         const encoder = makeContainerEncoder()
         const buffer = await encoder.encode(false, { embedFooter: true })
         const footer = footerOf(buffer!)
-        expect(footer).toEqual(JSON.parse(encoder.buildSidecar({ anonymize: false })))
+        expect(footer).toEqual(JSON.parse(encoder.buildSidecar({ deidentify: false })))
         expect(footer.events[0].codes).toEqual({ 'epicurrents.eeg': 'EEG_ACT_EC' })
         expect(footer.interruptions).toEqual([[1, 3]])
         expect(footer.subject.patientId).toBe('John Doe 1975-01-01')
     })
 
-    test('the footer follows the anonymization asked of it and keeps the codes', async () => {
-        const buffer = await makeContainerEncoder().encode(true, { embedFooter: true, embedFooterAnonymized: true })
+    test('the footer follows the de-identification asked of it and keeps the codes', async () => {
+        const buffer = await makeContainerEncoder().encode(true, { embedFooter: true, embedFooterDeidentified: true })
         const footer = footerOf(buffer!)
         expect(footer.subject.patientId).toBeNull()
         expect(footer.events[0].text).toBe('')

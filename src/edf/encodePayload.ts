@@ -42,10 +42,10 @@ export type EdfEncodePayloadChannel = {
  * worker without copying the (potentially large) signal data.
  */
 export type EdfEncodePayload = {
-    /** Anonymize the EDF file: blank subject identifiers and strip event/label text. */
-    anonymize: boolean
-    /** Anonymize the metadata sidecar as well. */
-    anonymizeSidecar: boolean
+    /** De-identify the EDF file: blank subject identifiers and strip event/label text. */
+    deidentify: boolean
+    /** De-identify the metadata sidecar as well. */
+    deidentifySidecar: boolean
     /** Channel descriptions, index-aligned with `signals`. */
     channels: EdfEncodePayloadChannel[]
     /** Embed the sidecar as a footer inside the EDF file (see `EdfExportOptions.embedFooter`). Defaults to false. */
@@ -79,7 +79,7 @@ export type EdfEncodeOutput = {
 }
 
 /**
- * Encode a serializable payload into an anonymized EDF file plus a metadata sidecar. Pure with respect to the DOM and
+ * Encode a serializable payload into a de-identified EDF file plus a metadata sidecar. Pure with respect to the DOM and
  * the application runtime, so it runs identically on the main thread or inside a worker.
  * @param payload - The serializable encode payload.
  * @returns The EDF bytes and sidecar JSON, or null if encoding failed.
@@ -152,16 +152,16 @@ export async function encodePayload (payload: EdfEncodePayload): Promise<EdfEnco
     })
     encoder.setSignals(physicalSignals)
     encoder.setInterruptions(new Map(payload.interruptions))
-    // The footer sits inside the file, so it is anonymized whenever the file is; the separate sidecar keeps its
+    // The footer sits inside the file, so it is de-identified whenever the file is; the separate sidecar keeps its
     // own switch, since it is what stays with the exporter as the re-identification key.
-    const edf = await encoder.encode(payload.anonymize, {
+    const edf = await encoder.encode(payload.deidentify, {
         embedFooter: payload.embedFooter ?? false,
-        embedFooterAnonymized: payload.anonymize || payload.anonymizeSidecar,
+        embedFooterDeidentified: payload.deidentify || payload.deidentifySidecar,
     })
     if (!edf) {
         Log.error(`Encoding the EDF file failed.`, SCOPE)
         return null
     }
-    const sidecar = encoder.buildSidecar({ anonymize: payload.anonymizeSidecar })
+    const sidecar = encoder.buildSidecar({ deidentify: payload.deidentifySidecar })
     return { edf, sidecar }
 }

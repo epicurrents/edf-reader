@@ -1,5 +1,5 @@
 /**
- * Epicurrents EDF exporter tests — resource → anonymized EDF + sidecar, including unit conversion and round-trip.
+ * Epicurrents EDF exporter tests — resource → de-identified EDF + sidecar, including unit conversion and round-trip.
  * @package    epicurrents/edf-reader
  * @copyright  2025 Sampsa Lohi
  * @license    Apache-2.0
@@ -76,7 +76,7 @@ function decode (edf: ArrayBuffer) {
 describe('EdfExporter.encodeResource', () => {
     test('round-trips physical signals through volt → µV conversion within quantization tolerance', async () => {
         const resource = makeResource()
-        const result = await new EdfExporter().encodeResource(resource, { anonymize: false })
+        const result = await new EdfExporter().encodeResource(resource, { deidentify: false })
         expect(result).not.toBeNull()
 
         const { decoded, header } = decode(result!.edf)
@@ -93,8 +93,8 @@ describe('EdfExporter.encodeResource', () => {
         }
     })
 
-    test('non-anonymized export keeps the subject id in the header; the sidecar keeps the originals', async () => {
-        const result = await new EdfExporter().encodeResource(makeResource(), { anonymize: false })
+    test('not de-identified export keeps the subject id in the header; the sidecar keeps the originals', async () => {
+        const result = await new EdfExporter().encodeResource(makeResource(), { deidentify: false })
         const { header } = decode(result!.edf)
         expect(header.patientId).toContain('Jane Doe 1975')
         const sidecar = JSON.parse(result!.sidecar) as EdfSidecar
@@ -102,8 +102,8 @@ describe('EdfExporter.encodeResource', () => {
         expect(sidecar.subject.recordingId).toBe('EMU 2024')
     })
 
-    test('anonymized export blanks the header subject but the sidecar still carries the originals', async () => {
-        const result = await new EdfExporter().encodeResource(makeResource(), { anonymize: true })
+    test('de-identified export blanks the header subject but the sidecar still carries the originals', async () => {
+        const result = await new EdfExporter().encodeResource(makeResource(), { deidentify: true })
         const { header } = decode(result!.edf)
         expect(header.patientId).toContain('X X X X')
         // The sidecar defaults to preserving the originals (it is the re-identification key).
@@ -127,17 +127,17 @@ describe('EdfExporter.encodeResource', () => {
             notchFilter: null,
             signal: new Float32Array(0),
         })
-        const result = await new EdfExporter().encodeResource(resource, { anonymize: false })
+        const result = await new EdfExporter().encodeResource(resource, { deidentify: false })
         expect(result).not.toBeNull()
         const { header } = decode(result!.edf)
         // Only the real signal channels are encoded; the meta channel is dropped.
         expect(header.signalCount).toBe(CHANNELS.length)
     })
 
-    test('preserves channel labels when anonymizing and derives modality', async () => {
-        const result = await new EdfExporter().encodeResource(makeResource(), { anonymize: true })
+    test('preserves channel labels when de-identifying and derives modality', async () => {
+        const result = await new EdfExporter().encodeResource(makeResource(), { deidentify: true })
         const { header } = decode(result!.edf)
-        // Labels are technical metadata (montages match on them) and must survive anonymization, not become "??".
+        // Labels are technical metadata (montages match on them) and must survive de-identification, not become "??".
         expect(header.getSignalLabel(0)).toContain('CH0')
         expect(header.getSignalLabel(1)).toContain('CH1')
         // Modality is derived (here falling back to the recording modality 'eeg'), not the generic source 'signal'.
@@ -145,9 +145,9 @@ describe('EdfExporter.encodeResource', () => {
         expect(sidecar.channels[0].modality).toBe('eeg')
     })
 
-    test('anonymizeSidecar also blanks the sidecar subject', async () => {
+    test('deidentifySidecar also blanks the sidecar subject', async () => {
         const result = await new EdfExporter().encodeResource(
-            makeResource(), { anonymize: true, anonymizeSidecar: true }
+            makeResource(), { deidentify: true, deidentifySidecar: true }
         )
         const sidecar = JSON.parse(result!.sidecar) as EdfSidecar
         expect(sidecar.subject.patientId).toBeNull()
@@ -195,7 +195,7 @@ describe('EdfExporter sidecar templates and the container', () => {
     }
 
     test('events and labels reach the sidecar as templates with their codes and none of the asset state', async () => {
-        const result = await new EdfExporter().encodeResource(makeAnnotatedResource(), { anonymize: false })
+        const result = await new EdfExporter().encodeResource(makeAnnotatedResource(), { deidentify: false })
         const sidecar = JSON.parse(result!.sidecar) as EdfSidecar
         expect(sidecar.events).toEqual([{
             annotator: 'Dr. Smith',
@@ -216,9 +216,9 @@ describe('EdfExporter sidecar templates and the container', () => {
         expect(sidecar.labels).toEqual([{ class: 'evaluation', priority: 300, value: 'normal' }])
     })
 
-    test('embedFooter appends the sidecar as a footer, anonymized with the file, and marks the header', async () => {
+    test('embedFooter appends the sidecar as a footer, de-identified with the file, and marks the header', async () => {
         const result = await new EdfExporter().encodeResource(
-            makeAnnotatedResource(), { anonymize: true, embedFooter: true }
+            makeAnnotatedResource(), { deidentify: true, embedFooter: true }
         )
         const reserved = new TextDecoder('ascii').decode(new Uint8Array(result!.edf, 192, 44)).trim()
         const match = reserved.match(/^EDF EC:(\d+):(\d+)$/)
@@ -240,9 +240,9 @@ describe('EdfExporter sidecar templates and the container', () => {
 
     test('without embedFooter the file ends with its last data record', async () => {
         const exporter = new EdfExporter()
-        const plain = await exporter.encodeResource(makeAnnotatedResource(), { anonymize: true })
+        const plain = await exporter.encodeResource(makeAnnotatedResource(), { deidentify: true })
         const container = await exporter.encodeResource(
-            makeAnnotatedResource(), { anonymize: true, embedFooter: true }
+            makeAnnotatedResource(), { deidentify: true, embedFooter: true }
         )
         const reserved = new TextDecoder('ascii').decode(new Uint8Array(container!.edf, 192, 44)).trim()
         const total = Number(reserved.match(/^EDF EC:(\d+):/)![1])
@@ -256,7 +256,7 @@ describe('EdfExporter.convertResource', () => {
         const resource = makeResource()
         const loadAndCacheSignals = vi.fn().mockResolvedValue(true)
         ;(resource as unknown as { loadAndCacheSignals: unknown }).loadAndCacheSignals = loadAndCacheSignals
-        const result = await new EdfExporter().convertResource(resource, { anonymize: false })
+        const result = await new EdfExporter().convertResource(resource, { deidentify: false })
         expect(loadAndCacheSignals).toHaveBeenCalledTimes(1)
         expect(result).not.toBeNull()
         const { header } = decode(result!.edf)

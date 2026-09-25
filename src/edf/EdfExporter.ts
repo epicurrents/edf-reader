@@ -1,6 +1,6 @@
 /**
- * Epicurrents EDF exporter. Produces an anonymized EDF file plus a metadata sidecar from a decoded biosignal
- * resource, allowing any importable format to be converted into anonymized EDF.
+ * Epicurrents EDF exporter. Produces a de-identified EDF file plus a metadata sidecar from a decoded biosignal
+ * resource, allowing any importable format to be converted into de-identified EDF.
  * @package    epicurrents/edf-reader
  * @copyright  2023 Sampsa Lohi
  * @license    Apache-2.0
@@ -27,15 +27,15 @@ const SCOPE = 'EdfExporter'
  * Options controlling an EDF export.
  */
 export type EdfExportOptions = {
-    /** Anonymize the EDF file: blank subject identifiers in the header and strip event/label text. Defaults to true. */
-    anonymize?: boolean
-    /** Anonymize the metadata sidecar as well. Defaults to false, so the sidecar preserves the original metadata. */
-    anonymizeSidecar?: boolean
+    /** De-identify the EDF file: blank subject identifiers in the header and strip event/label text. Defaults to true. */
+    deidentify?: boolean
+    /** De-identify the metadata sidecar as well. Defaults to false, so the sidecar preserves the original metadata. */
+    deidentifySidecar?: boolean
     /**
      * Embed the sidecar as a footer inside the EDF file, marked in the header's reserved field, so the recording
      * travels as one file. This is the container the platform ingests: it detaches the footer and stores the EDF
      * alone, and the footer's events, with the codes they carry, and interruptions become its rows. The footer is
-     * anonymized whenever the file is, or when `anonymizeSidecar` is set; the sidecar is still returned separately.
+     * de-identified whenever the file is, or when `deidentifySidecar` is set; the sidecar is still returned separately.
      * Defaults to false.
      */
     embedFooter?: boolean
@@ -104,7 +104,7 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
     protected _getWorker: (() => Worker | null) | null = null
 
     constructor () {
-        super('EdfExporter', 'edf', 'Exports a recording as an anonymized EDF file with a metadata sidecar.')
+        super('EdfExporter', 'edf', 'Exports a recording as a de-identified EDF file with a metadata sidecar.')
     }
 
     /** Run the pure encode step, off the main thread when an encode worker is available. */
@@ -242,12 +242,12 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
             Log.error(`Cannot export resource: no full data records available.`, SCOPE)
             return null
         }
-        // Subject identifiers come from the original study header (blanked later if the file is anonymized).
+        // Subject identifiers come from the original study header (blanked later if the file is de-identified).
         const sourceHeader = resource.source?.meta?.header as Partial<BiosignalHeaderRecord> | undefined
         const startTime = sourceHeader?.recordingStartTime ?? resource.startTime ?? null
         return {
-            anonymize: options.anonymize ?? true,
-            anonymizeSidecar: options.anonymizeSidecar ?? false,
+            deidentify: options.deidentify ?? true,
+            deidentifySidecar: options.deidentifySidecar ?? false,
             channels: payloadChannels,
             embedFooter: options.embedFooter ?? false,
             // Templates rather than the live assets: an asset serializes its internal state, not its fields.
@@ -266,7 +266,7 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
     }
 
     /**
-     * Encode the given resource into an anonymized EDF file and a metadata sidecar. This is the format-agnostic core
+     * Encode the given resource into a de-identified EDF file and a metadata sidecar. This is the format-agnostic core
      * of the exporter: it reads physical signals and metadata from the decoded resource, so it works regardless of the
      * source file format. The encoding step itself is delegated to {@link encodePayload}, which can also run in a
      * worker.
@@ -283,7 +283,7 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
     }
 
     /**
-     * Convert a decoded-but-inactive biosignal resource into an anonymized EDF file and metadata sidecar. This is the
+     * Convert a decoded-but-inactive biosignal resource into a de-identified EDF file and metadata sidecar. This is the
      * direct import→export conversion entry point: a study loader produces the resource (via `getResource`) without
      * activating it, then this method caches its raw signals through the lightweight
      * {@link BiosignalResource.loadAndCacheSignals} path — skipping the SAB allocation, default montages, and
@@ -336,7 +336,7 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
     }
 
     /**
-     * Export the active biosignal resource as an anonymized EDF file, and download the metadata sidecar alongside it.
+     * Export the active biosignal resource as a de-identified EDF file, and download the metadata sidecar alongside it.
      * A one-shot download of both artifacts; hosts that want a staged flow should use {@link exportActiveResource}.
      * @param options - Export options.
      */
