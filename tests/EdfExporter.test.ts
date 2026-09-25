@@ -163,13 +163,13 @@ describe('EdfExporter sidecar templates and the container', () => {
         channels: [],
         class: 'activation',
         codes: { 'epicurrents.eeg': 'EEG_ACT_HV' },
-        duration: 30,
+        duration: 2,
         id: 'asset-id',
         label: 'HV',
         locked: true,
         name: 'q1',
         priority: 300,
-        start: 60,
+        start: 1,
         text: 'strong effort',
         value: 'Hyperventilation',
         visible: false,
@@ -203,12 +203,12 @@ describe('EdfExporter sidecar templates and the container', () => {
             channels: [],
             class: 'activation',
             codes: { 'epicurrents.eeg': 'EEG_ACT_HV' },
-            duration: 30,
+            duration: 2,
             label: 'HV',
             locked: true,
             name: 'q1',
             priority: 300,
-            start: 60,
+            start: 1,
             text: 'strong effort',
             value: 'Hyperventilation',
             visible: false,
@@ -248,6 +248,110 @@ describe('EdfExporter sidecar templates and the container', () => {
         const total = Number(reserved.match(/^EDF EC:(\d+):/)![1])
         expect(plain!.edf.byteLength).toBe(total)
         expect(new Uint8Array(plain!.edf, 192, 44).every(byte => byte === 32)).toBe(true)
+    })
+})
+
+describe('EdfExporter selection', () => {
+    /** A bare event on the given record-montage references, inside the three-second recording. */
+    const event = (channels: (number | string)[], value: string) => ({
+        channels, class: 'event', duration: 0, priority: 0, start: 0.5, value,
+    })
+
+    test('cuts the range, reorders and relabels channels and writes the amplitude range into the header', async () => {
+        const resource = makeResource()
+        const result = await new EdfExporter().encodeResource(resource, {
+            deidentify: false,
+            selection: {
+                amplitudeRange: [-50, 50],
+                channels: [{ label: 'B', source: 1 }, { label: 'A', source: 0 }],
+                range: [1, 3],
+            },
+        })
+        expect(result).not.toBeNull()
+        const { decoded, header } = decode(result!.edf)
+        expect(header.dataUnitCount).toBe(2)
+        expect(header.getSignalLabel(0)).toContain('B')
+        expect(header.getSignalLabel(1)).toContain('A')
+        const sidecar = JSON.parse(result!.sidecar) as EdfSidecar
+        expect(sidecar.channels.map(c => [c.name, c.physicalMin, c.physicalMax]))
+            .toEqual([['B', -50, 50], ['A', -50, 50]])
+        // Channel 1 runs at 2 Hz, so the range starts at its third sample; values past ±50 µV are clipped.
+        const original = resource.channels[1].signal as Float32Array
+        const tolerance = (100/65535)*UV + 1e-12
+        for (let i = 0; i < 4; i++) {
+            const expected = Math.min(50*UV, Math.max(-50*UV, original[i + 2]))
+            expect(Math.abs(decoded!.data[0][i] - expected)).toBeLessThanOrEqual(tolerance)
+        }
+    })
+
+    test('downsamples to the output rate and states the new low-pass in the prefiltering', async () => {
+        const result = await new EdfExporter().encodeResource(makeResource(), {
+            deidentify: false,
+            selection: { samplingRate: 2 },
+        })
+        const sidecar = JSON.parse(result!.sidecar) as EdfSidecar
+        expect(sidecar.channels.map(c => c.samplingRate)).toEqual([2, 2])
+        expect(sidecar.channels[0].sampleCount).toBe(2*RECORD_COUNT)
+        // Channel 0 went from 4 Hz through the anti-aliasing filter; channel 1 was already at 2 Hz and did not.
+        expect(sidecar.channels[0].preFilters.lowpass).toBeCloseTo(0.8)
+        expect(sidecar.channels[1].preFilters.lowpass).toBeNull()
+    })
+
+    test('maps event channels through the record montage and drops events on dropped channels', async () => {
+        const resource = makeResource()
+        // The record montage lists the channels in reverse, so its positions differ from the channel-list indices.
+        ;(resource as unknown as { recordMontage: unknown }).recordMontage = {
+            channels: [{ active: 1, name: 'CH1' }, { active: 0, name: 'CH0' }],
+        }
+        ;(resource as unknown as { events: unknown[] }).events = [
+            event([0], 'on kept'),
+            event([1], 'on dropped'),
+            event([0, 1], 'on both'),
+            event(['ch1'], 'by name'),
+            event([], 'general'),
+            event([5], 'on no channel'),
+        ]
+        const result = await new EdfExporter().encodeResource(resource, {
+            deidentify: false,
+            selection: { channels: [{ source: 1 }] },
+        })
+        const sidecar = JSON.parse(result!.sidecar) as EdfSidecar
+        expect(sidecar.events.map(e => [e.value, e.channels])).toEqual([
+            ['on kept', [0]],
+            ['on both', [0]],
+            ['by name', ['CH1']],
+            ['general', []],
+        ])
+    })
+
+    test('writes whole records only and states the samples the file holds', async () => {
+        const result = await new EdfExporter().encodeResource(makeResource(), {
+            deidentify: false,
+            selection: { range: [0.5, 3] },
+        })
+        const { header } = decode(result!.edf)
+        expect(header.dataUnitCount).toBe(2)
+        const sidecar = JSON.parse(result!.sidecar) as EdfSidecar
+        expect(sidecar.channels.map(c => c.sampleCount)).toEqual([8, 4])
+    })
+
+    test('refuses an output rate that is not a whole number of hertz', async () => {
+        const result = await new EdfExporter().encodeResource(makeResource(), { selection: { samplingRate: 1.5 } })
+        expect(result).toBeNull()
+    })
+
+    test('refuses a selection the transform cannot apply', async () => {
+        const result = await new EdfExporter().encodeResource(makeResource(), { selection: { range: [2, 9] } })
+        expect(result).toBeNull()
+    })
+
+    test('starts the file where the range starts', async () => {
+        const result = await new EdfExporter().encodeResource(makeResource(), {
+            deidentify: false,
+            selection: { range: [1, 3] },
+        })
+        const sidecar = JSON.parse(result!.sidecar) as EdfSidecar
+        expect(sidecar.subject.recordingDate).toBe('2024-03-02T09:30:01.000Z')
     })
 })
 

@@ -11,17 +11,29 @@ import type {
     AnnotationEventTemplate,
     AnnotationLabelTemplate,
     BiosignalAnnotationEvent,
+    BiosignalExportChannel,
+    BiosignalExportSelection,
     BiosignalHeaderRecord,
+    BiosignalMontage,
     BiosignalResource,
+    DerivedChannelProperties,
     FileFormatExporter,
     MediaDataset,
 } from '@epicurrents/core/types'
+import {
+    applyExportSelection,
+    DOWNSAMPLE_CUTOFF_FRACTION,
+    getSignalScale,
+    type ExportSourceSignalChannel,
+} from '@epicurrents/core/util'
 import { encodePayload, type EdfEncodePayload } from './encodePayload'
 import { extractSignalModality } from '#util'
 import type { EdfRecordingType } from '#types'
 import { Log } from 'scoped-event-log'
 
 const SCOPE = 'EdfExporter'
+/** The montage layer's marker for a channel that maps to no source signal. */
+const NOT_MAPPED = -1
 
 /**
  * Options controlling an EDF export.
@@ -39,6 +51,14 @@ export type EdfExportOptions = {
      * Defaults to false.
      */
     embedFooter?: boolean
+    /**
+     * Reduce the recording before encoding it: a range, an ordered set of channels under output labels, one output
+     * rate and an amplitude range, applied with core's `applyExportSelection`. Amplitude ranges are in each channel's
+     * unit and become the channels' physical range in the header. Events and interruptions are clipped to the range
+     * and re-based to its start, and an event keeps only the channels the selection keeps. The whole recording when
+     * omitted. The output rate must be a whole number of hertz, since the file is written in one-second records.
+     */
+    selection?: BiosignalExportSelection
 }
 
 /**
@@ -84,6 +104,68 @@ function eventTemplate (event: BiosignalAnnotationEvent): AnnotationEventTemplat
         duration: event.duration,
         start: event.start,
     }
+}
+
+/**
+ * The record-channel indices a montage channel's `active` property draws on.
+ * @param active - The `active` property of a montage channel.
+ */
+function activeSources (active: number | DerivedChannelProperties | undefined): number[] {
+    if (active === undefined) {
+        return []
+    }
+    const entries = typeof active === 'number' ? [active] : active.map(entry => Array.isArray(entry) ? entry[0] : entry)
+    return entries.filter(index => typeof index === 'number' && index !== NOT_MAPPED)
+}
+
+/**
+ * Re-express event channel references against the resource's channel list. An event refers to its channels as they
+ * exist in the record montage: a number is a position in that montage, which differs from the channel-list index
+ * wherever the montage leaves a channel out, and becomes the index of the channel it maps to. A string is a channel
+ * name and stays as it is, since the source channels carry the record montage's names. An event none of whose
+ * references maps to a channel is dropped, since an empty list would make it an event on every channel. Without a
+ * record montage the references already are channel-list indices.
+ * @param events - The event templates.
+ * @param montage - The resource's record montage, if it has one.
+ */
+function eventsAgainstSources (events: AnnotationEventTemplate[], montage: BiosignalMontage | null) {
+    if (!montage) {
+        return events
+    }
+    return events.flatMap(event => {
+        if (!event.channels?.length) {
+            return [event]
+        }
+        const channels = [] as (number | string)[]
+        for (const ref of event.channels) {
+            if (typeof ref === 'string') {
+                channels.push(ref)
+                continue
+            }
+            for (const index of activeSources(montage.channels[ref]?.active)) {
+                if (!channels.includes(index)) {
+                    channels.push(index)
+                }
+            }
+        }
+        return channels.length ? [{ ...event, channels }] : []
+    })
+}
+
+/**
+ * The name each channel-list index carries in the record montage, which is what an event's string references match.
+ * Only a montage channel drawing on exactly one source names that source.
+ * @param montage - The resource's record montage, if it has one.
+ */
+function recordMontageNames (montage: BiosignalMontage | null) {
+    const names = new Map<number, string>()
+    for (const channel of montage?.channels || []) {
+        const sources = activeSources(channel?.active)
+        if (sources.length === 1 && channel.name && !names.has(sources[0])) {
+            names.set(sources[0], channel.name)
+        }
+    }
+    return names
 }
 
 /**
@@ -174,10 +256,11 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
     /**
      * Gather a serializable encode payload from the given resource: physical signals (in base units) plus the metadata
      * the encoder needs. This is the resource- and runtime-dependent half of the export; the payload it produces can be
-     * encoded on the main thread or handed to a worker.
+     * encoded on the main thread or handed to a worker. The signals, events and interruptions pass through core's
+     * `applyExportSelection`, with the selection in the options or, without one, the whole recording.
      * @param resource - The decoded biosignal resource to read.
      * @param options - Export options.
-     * @returns The encode payload, or null if the resource could not be read.
+     * @returns The encode payload, or null if the resource could not be read or the selection could not be applied.
      */
     protected async _gatherPayload (
         resource: BiosignalResource,
@@ -185,6 +268,15 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
     ): Promise<EdfEncodePayload | null> {
         if (!resource.channels.length) {
             Log.error(`Cannot export resource with no channels.`, SCOPE)
+            return null
+        }
+        const selection = options.selection || {}
+        if (selection.samplingRate !== undefined && !Number.isInteger(selection.samplingRate)) {
+            Log.error(
+                `Cannot export at ${selection.samplingRate} Hz: EDF records last one second, so the output rate must ` +
+                `be a whole number of hertz.`,
+                SCOPE
+            )
             return null
         }
         // Only real signal channels are exported. Meta channels (the EDF Annotations channel, unitless channels)
@@ -206,61 +298,122 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
             Log.error(`Cannot determine a valid recording length for export.`, SCOPE)
             return null
         }
-        // Fetch signals from the service only if some channel does not already hold its full cached signal.
+        // Fetch signals from the service only if some channel does not already hold its full cached signal. The whole
+        // recording is read even for a narrower range, because the cache is indexed in data time and the transform
+        // cuts the range from it.
         const needsFetch = signalChannels.some(({ channel }) => !channel.signal?.length)
         const fetched = needsFetch ? await resource.getAllRawSignals([0, maxSeconds]) : null
-        const payloadChannels: EdfEncodePayload['channels'] = []
-        const signals: Float32Array[] = []
-        // Determine the record count as the largest whole second every signal channel actually covers.
-        let recordCount = Number.POSITIVE_INFINITY
+        const signalsByIndex = new Map<number, Float32Array>()
         for (const { channel, index } of signalChannels) {
             const source = channel.signal?.length ? channel.signal : fetched?.signals[index]?.data
             if (!source?.length) {
                 Log.error(`Missing signal data for channel ${index} (${channel.label}).`, SCOPE)
                 return null
             }
-            signals.push(source instanceof Float32Array ? source : Float32Array.from(source))
-            recordCount = Math.min(recordCount, Math.floor(source.length/channel.samplingRate))
-            payloadChannels.push({
-                highpassFilter: channel.highpassFilter,
-                label: channel.label,
-                lowpassFilter: channel.lowpassFilter,
-                // The source channel modality is generic ('signal'); derive the real type from the label (e.g. an
-                // "EEG C3" label yields 'eeg'), falling back to the recording modality then the channel's own value.
-                modality: extractSignalModality({ label: channel.label })
-                          || resource.modality
-                          || channel.modality,
-                name: channel.name,
-                notchFilter: channel.notchFilter,
-                sampleCount: channel.sampleCount,
-                samplingRate: channel.samplingRate,
-                sensitivity: channel.sensitivity,
-                unit: channel.unit,
-            })
+            signalsByIndex.set(index, source instanceof Float32Array ? source : Float32Array.from(source))
+        }
+        const names = recordMontageNames(resource.recordMontage)
+        const sources = resource.channels.map((channel, index): ExportSourceSignalChannel => ({
+            label: channel.label,
+            modality: channel.modality,
+            name: names.get(index) ?? channel.name,
+            sampleCount: signalsByIndex.get(index)?.length ?? 0,
+            samplingRate: channel.samplingRate,
+            signal: signalsByIndex.get(index),
+            unit: channel.unit,
+        }))
+        // The selection's amplitude ranges are in each channel's unit, the signals in base units: the transform clips
+        // with ranges scaled to the signal, and the encoder writes the ranges as given into the header.
+        const outputs: BiosignalExportChannel[] = selection.channels
+                                                  ?? signalChannels.map(({ index }) => ({ source: index }))
+        const unitRanges = outputs.map(output => output.amplitudeRange ?? selection.amplitudeRange)
+        const result = applyExportSelection(
+            {
+                channels: sources,
+                events: eventsAgainstSources(resource.events.map(eventTemplate), resource.recordMontage),
+                interruptions: resource.interruptions.map(({ start, duration }): [number, number] => [start, duration]),
+            },
+            {
+                channels: outputs.map((output, i) => {
+                    const range = unitRanges[i]
+                    const scale = getSignalScale(resource.channels[output.source]?.unit || '') || 1
+                    return {
+                        ...output,
+                        amplitudeRange: range ? [range[0]*scale, range[1]*scale] : undefined,
+                    }
+                }),
+                range: selection.range,
+                samplingRate: selection.samplingRate,
+            }
+        )
+        if ('violations' in result) {
+            for (const violation of result.violations) {
+                Log.error(`Cannot export the selection: ${violation.message}`, SCOPE)
+            }
+            return null
+        }
+        // Determine the record count as the largest whole second every signal channel actually covers.
+        let recordCount = Number.POSITIVE_INFINITY
+        for (const output of result.channels) {
+            recordCount = Math.min(recordCount, Math.floor(output.signal.length/output.samplingRate + 1e-9))
         }
         if (!Number.isFinite(recordCount) || recordCount <= 0) {
             Log.error(`Cannot export resource: no full data records available.`, SCOPE)
             return null
         }
+        const payloadChannels: EdfEncodePayload['channels'] = []
+        const signals: Float32Array[] = []
+        result.channels.forEach((output, i) => {
+            const channel = resource.channels[output.source]
+            // A downsampled channel went through a new low-pass, which the header's prefiltering has to state.
+            const lowpassFilter = output.samplingRate < channel.samplingRate
+                                  ? Math.min(
+                                        channel.lowpassFilter ?? Number.POSITIVE_INFINITY,
+                                        DOWNSAMPLE_CUTOFF_FRACTION*output.samplingRate
+                                    )
+                                  : channel.lowpassFilter
+            // Only whole records are written, so the channel states the samples the file holds.
+            const signal = output.signal.subarray(0, Math.round(recordCount*output.samplingRate))
+            signals.push(signal)
+            payloadChannels.push({
+                amplitudeRange: unitRanges[i],
+                highpassFilter: channel.highpassFilter,
+                label: output.label,
+                lowpassFilter,
+                // The source channel modality is generic ('signal'); derive the real type from the label (e.g. an
+                // "EEG C3" label yields 'eeg'), falling back to the recording modality then the channel's own value.
+                modality: extractSignalModality({ label: channel.label })
+                          || resource.modality
+                          || channel.modality,
+                // A relabelled channel does not carry its source name, which would restore what the label replaced.
+                name: output.label === channel.label ? channel.name : output.label,
+                notchFilter: channel.notchFilter,
+                sampleCount: signal.length,
+                samplingRate: output.samplingRate,
+                sensitivity: channel.sensitivity,
+                unit: channel.unit,
+            })
+        })
         // Subject identifiers come from the original study header (blanked later if the file is de-identified).
         const sourceHeader = resource.source?.meta?.header as Partial<BiosignalHeaderRecord> | undefined
         const startTime = sourceHeader?.recordingStartTime ?? resource.startTime ?? null
+        // The file starts where the range does.
+        const rangeStart = startTime ? new Date(startTime.getTime() + result.range.recording[0]*1000) : null
         return {
             deidentify: options.deidentify ?? true,
             deidentifySidecar: options.deidentifySidecar ?? false,
             channels: payloadChannels,
             embedFooter: options.embedFooter ?? false,
-            // Templates rather than the live assets: an asset serializes its internal state, not its fields.
-            events: resource.events.map(eventTemplate),
+            events: result.events,
             labels: resource.labels.map(labelTemplate),
-            interruptions: resource.interruptions.map(({ start, duration }): [number, number] => [start, duration]),
+            interruptions: result.interruptions,
             modality: (resource.modality || 'eeg') as EdfRecordingType,
             recordCount,
             signals,
             subject: {
                 patientId: sourceHeader?.patientId ?? null,
                 recordingId: sourceHeader?.recordingId ?? null,
-                recordingStartTime: startTime ? startTime.toISOString() : null,
+                recordingStartTime: rangeStart ? rangeStart.toISOString() : null,
             },
         }
     }

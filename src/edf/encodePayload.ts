@@ -24,6 +24,11 @@ const SCOPE = 'encodePayload'
  * the non-serializable parts.
  */
 export type EdfEncodePayloadChannel = {
+    /**
+     * Physical range to write into the header, as `[minimum, maximum]` in the channel's unit, when the samples were
+     * clipped to it. The samples' own extremes otherwise.
+     */
+    amplitudeRange?: [number, number]
     highpassFilter: number | null
     label: string
     lowpassFilter: number | null
@@ -115,8 +120,10 @@ export async function encodePayload (payload: EdfEncodePayload): Promise<EdfEnco
                 max = value
             }
         }
-        // A flat channel has no representable range; widen it so the value survives quantization.
-        if (!(max > min)) {
+        if (channel.amplitudeRange) {
+            [min, max] = channel.amplitudeRange
+        } else if (!(max > min)) {
+            // A flat channel has no representable range; widen it so the value survives quantization.
             max = min + 1
         }
         encoder.amplitudeRanges.set(i, [min, max])
