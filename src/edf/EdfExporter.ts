@@ -8,6 +8,9 @@
 
 import { GenericStudyExporter } from '@epicurrents/core'
 import type {
+    AnnotationEventTemplate,
+    AnnotationLabelTemplate,
+    BiosignalAnnotationEvent,
     BiosignalHeaderRecord,
     BiosignalResource,
     FileFormatExporter,
@@ -28,6 +31,14 @@ export type EdfExportOptions = {
     anonymize?: boolean
     /** Anonymize the metadata sidecar as well. Defaults to false, so the sidecar preserves the original metadata. */
     anonymizeSidecar?: boolean
+    /**
+     * Embed the sidecar as a footer inside the EDF file, marked in the header's reserved field, so the recording
+     * travels as one file. This is the container the platform ingests: it detaches the footer and stores the EDF
+     * alone, and the footer's events, with the codes they carry, and interruptions become its rows. The footer is
+     * anonymized whenever the file is, or when `anonymizeSidecar` is set; the sidecar is still returned separately.
+     * Defaults to false.
+     */
+    embedFooter?: boolean
 }
 
 /**
@@ -38,6 +49,52 @@ export type EdfExportResult = {
     edf: ArrayBuffer
     /** The metadata sidecar as a JSON string. */
     sidecar: string
+}
+
+/**
+ * The template fields shared by events and labels, taken from a live annotation: the fields that describe it, and
+ * of its state only what a re-import needs (a lock, a hidden state, the matching name), never the asset's runtime.
+ * @param annotation - The resource annotation.
+ */
+function annotationTemplate (annotation: BiosignalAnnotationEvent | BiosignalResource['labels'][number]) {
+    return {
+        annotator: annotation.annotator || undefined,
+        codes: annotation.codes && Object.keys(annotation.codes).length ? { ...annotation.codes } : undefined,
+        label: annotation.label || undefined,
+        locked: annotation.locked || undefined,
+        name: annotation.name || undefined,
+        priority: annotation.priority,
+        text: annotation.text || undefined,
+        value: annotation.value,
+        visible: annotation.visible === false ? false : undefined,
+    }
+}
+
+/**
+ * Reduce a resource event to the template the sidecar carries. An event's standardized codes ride along, which is
+ * what lets the platform resolve the event to its own vocabulary without translating the text.
+ * @param event - The resource event.
+ */
+function eventTemplate (event: BiosignalAnnotationEvent): AnnotationEventTemplate {
+    return {
+        ...annotationTemplate(event),
+        background: event.background,
+        channels: [...(event.channels || [])],
+        class: event.class,
+        duration: event.duration,
+        start: event.start,
+    }
+}
+
+/**
+ * Reduce a resource label to the template the sidecar carries.
+ * @param label - The resource label.
+ */
+function labelTemplate (label: BiosignalResource['labels'][number]): AnnotationLabelTemplate {
+    return {
+        ...annotationTemplate(label),
+        class: label.class,
+    }
 }
 
 export default class EdfExporter extends GenericStudyExporter implements FileFormatExporter {
@@ -192,8 +249,10 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
             anonymize: options.anonymize ?? true,
             anonymizeSidecar: options.anonymizeSidecar ?? false,
             channels: payloadChannels,
-            events: resource.events,
-            labels: resource.labels,
+            embedFooter: options.embedFooter ?? false,
+            // Templates rather than the live assets: an asset serializes its internal state, not its fields.
+            events: resource.events.map(eventTemplate),
+            labels: resource.labels.map(labelTemplate),
             interruptions: resource.interruptions.map(({ start, duration }): [number, number] => [start, duration]),
             modality: (resource.modality || 'eeg') as EdfRecordingType,
             recordCount,

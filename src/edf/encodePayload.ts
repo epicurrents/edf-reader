@@ -48,6 +48,8 @@ export type EdfEncodePayload = {
     anonymizeSidecar: boolean
     /** Channel descriptions, index-aligned with `signals`. */
     channels: EdfEncodePayloadChannel[]
+    /** Embed the sidecar as a footer inside the EDF file (see `EdfExportOptions.embedFooter`). Defaults to false. */
+    embedFooter?: boolean
     /** Structured events for the recording. */
     events: AnnotationEventTemplate[]
     /** Structured labels for the recording. */
@@ -150,7 +152,12 @@ export async function encodePayload (payload: EdfEncodePayload): Promise<EdfEnco
     })
     encoder.setSignals(physicalSignals)
     encoder.setInterruptions(new Map(payload.interruptions))
-    const edf = await encoder.encode(payload.anonymize)
+    // The footer sits inside the file, so it is anonymized whenever the file is; the separate sidecar keeps its
+    // own switch, since it is what stays with the exporter as the re-identification key.
+    const edf = await encoder.encode(payload.anonymize, {
+        embedFooter: payload.embedFooter ?? false,
+        embedFooterAnonymized: payload.anonymize || payload.anonymizeSidecar,
+    })
     if (!edf) {
         Log.error(`Encoding the EDF file failed.`, SCOPE)
         return null

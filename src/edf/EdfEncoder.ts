@@ -282,7 +282,11 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         return footerBuffer
     }
 
-    async #writeHeaderBuffer (anonymize = false, embedFooter = false): Promise<ArrayBuffer | null> {
+    /**
+     * Write the header record. With `embedFooter`, `dataBytes` is the byte size of the data records as written, which
+     * the container marker names together with the header size so a reader can find the footer.
+     */
+    async #writeHeaderBuffer (anonymize = false, embedFooter = false, dataBytes = 0): Promise<ArrayBuffer | null> {
         this.#buffers.header = null
         if (!this.#header) {
             Log.error(`Cannot write header buffer, current header property is empty.`, SCOPE)
@@ -338,12 +342,15 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             headerView.setUint8(offset++, headerRecordBytes.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
         // Write the reserved field. When embedding the sidecar as a footer, use the Epicurrents container marker
-        // `<EDF|EDF+D> EC:<total bytes>:<footer KB>`; otherwise emit a standard EDF/EDF+ reserved field so the file
-        // reads as ordinary EDF in third-party tools.
+        // `EDF EC:<total bytes>:<footer KB>`; otherwise emit a standard EDF/EDF+ reserved field so the file reads
+        // as ordinary EDF in third-party tools. A container is plain EDF whatever the recording's continuity: the
+        // file has no annotation channel to carry a timeline, and the footer carries the interruptions instead.
         let reserved = this.#header.discontinuous ? 'EDF+D' : ''
         if (embedFooter) {
-            // Compute the byte size of the entire recording.
-            const totalByteSize = headerBytes + this.#header.dataUnitCount*this.#header.dataUnitSize
+            // The byte size of the recording proper: the header record and the data records as written. Taken from
+            // the written signal buffer rather than the header's data unit size, which a header built from a
+            // resource never carries.
+            const totalByteSize = headerBytes + dataBytes
             // Get the footer size in KB.
             const footerBuffer = this.#buffers.footer || (await this.#writeFooterBuffer())
             if (!footerBuffer) {
@@ -351,9 +358,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
                 return null
             }
             const footerSize = Math.ceil(footerBuffer.byteLength/1024)
-            reserved = this.#header.discontinuous
-                     ? `EDF+D EC:${totalByteSize}:${footerSize}`
-                     : `EDF EC:${totalByteSize}:${footerSize}`
+            reserved = `EDF EC:${totalByteSize}:${footerSize}`
         }
         for (let i = 0; i < 44; i++) {
             headerView.setUint8(offset++, reserved.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
@@ -644,13 +649,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             }
             Log.debug(`Footer buffer written, size: ${footerBuffer.byteLength} bytes.`, SCOPE)
         }
-        const headerBuffer = await this.#writeHeaderBuffer(anonymize, embedFooter)
-        if (!headerBuffer) {
-            Log.error(`Failed to write header buffer.`, SCOPE)
-            this.#locked = false
-            return null
-        }
-        Log.debug(`Header buffer written, size: ${headerBuffer.byteLength} bytes.`, SCOPE)
+        // The data records are written before the header because the container marker names their size.
         const signalBuffer = await this.#writeSignalBuffer()
         if (!signalBuffer) {
             Log.error(`Failed to write signal buffer.`, SCOPE)
@@ -658,6 +657,13 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             return null
         }
         Log.debug(`Signal buffer written, size: ${signalBuffer.byteLength} bytes.`, SCOPE)
+        const headerBuffer = await this.#writeHeaderBuffer(anonymize, embedFooter, signalBuffer.byteLength)
+        if (!headerBuffer) {
+            Log.error(`Failed to write header buffer.`, SCOPE)
+            this.#locked = false
+            return null
+        }
+        Log.debug(`Header buffer written, size: ${headerBuffer.byteLength} bytes.`, SCOPE)
         // Combine the buffers into a single ArrayBuffer (footer only when embedded).
         const totalSize = headerBuffer.byteLength + signalBuffer.byteLength + (footerBuffer?.byteLength || 0)
         const combinedBuffer = new ArrayBuffer(totalSize)

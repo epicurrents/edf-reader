@@ -154,6 +154,103 @@ describe('EdfExporter.encodeResource', () => {
     })
 })
 
+describe('EdfExporter sidecar templates and the container', () => {
+    /** A live event as the resource holds one: the template fields plus asset state that must not be exported. */
+    const liveEvent = {
+        _codes: { 'epicurrents.eeg': 'EEG_ACT_HV' },
+        annotator: 'Dr. Smith',
+        background: false,
+        channels: [],
+        class: 'activation',
+        codes: { 'epicurrents.eeg': 'EEG_ACT_HV' },
+        duration: 30,
+        id: 'asset-id',
+        label: 'HV',
+        locked: true,
+        name: 'q1',
+        priority: 300,
+        start: 60,
+        text: 'strong effort',
+        value: 'Hyperventilation',
+        visible: false,
+    }
+    const liveLabel = {
+        annotator: '',
+        class: 'evaluation',
+        codes: {},
+        id: 'asset-id-2',
+        label: '',
+        locked: false,
+        priority: 300,
+        text: '',
+        value: 'normal',
+        visible: true,
+    }
+
+    function makeAnnotatedResource (): BiosignalResource {
+        const resource = makeResource()
+        ;(resource as unknown as { events: unknown[] }).events = [liveEvent]
+        ;(resource as unknown as { labels: unknown[] }).labels = [liveLabel]
+        return resource
+    }
+
+    test('events and labels reach the sidecar as templates with their codes and none of the asset state', async () => {
+        const result = await new EdfExporter().encodeResource(makeAnnotatedResource(), { anonymize: false })
+        const sidecar = JSON.parse(result!.sidecar) as EdfSidecar
+        expect(sidecar.events).toEqual([{
+            annotator: 'Dr. Smith',
+            background: false,
+            channels: [],
+            class: 'activation',
+            codes: { 'epicurrents.eeg': 'EEG_ACT_HV' },
+            duration: 30,
+            label: 'HV',
+            locked: true,
+            name: 'q1',
+            priority: 300,
+            start: 60,
+            text: 'strong effort',
+            value: 'Hyperventilation',
+            visible: false,
+        }])
+        expect(sidecar.labels).toEqual([{ class: 'evaluation', priority: 300, value: 'normal' }])
+    })
+
+    test('embedFooter appends the sidecar as a footer, anonymized with the file, and marks the header', async () => {
+        const result = await new EdfExporter().encodeResource(
+            makeAnnotatedResource(), { anonymize: true, embedFooter: true }
+        )
+        const reserved = new TextDecoder('ascii').decode(new Uint8Array(result!.edf, 192, 44)).trim()
+        const match = reserved.match(/^EDF EC:(\d+):(\d+)$/)
+        expect(match).not.toBeNull()
+        const total = Number(match![1])
+        const kib = Number(match![2])
+        expect(result!.edf.byteLength).toBe(total + kib*1024)
+        const text = new TextDecoder().decode(new Uint8Array(result!.edf, total, kib*1024)).replace(/\0+$/, '')
+        const footer = JSON.parse(text) as EdfSidecar
+        expect(footer.subject.patientId).toBeNull()
+        expect(footer.events[0].codes).toEqual({ 'epicurrents.eeg': 'EEG_ACT_HV' })
+        expect(footer.events[0].text).toBe('')
+        // The separate sidecar keeps its own default and still carries the originals.
+        expect((JSON.parse(result!.sidecar) as EdfSidecar).subject.patientId).toBe('Jane Doe 1975')
+        // The EDF part still decodes as an ordinary recording.
+        const { header } = decode(result!.edf)
+        expect(header.dataUnitCount).toBe(RECORD_COUNT)
+    })
+
+    test('without embedFooter the file ends with its last data record', async () => {
+        const exporter = new EdfExporter()
+        const plain = await exporter.encodeResource(makeAnnotatedResource(), { anonymize: true })
+        const container = await exporter.encodeResource(
+            makeAnnotatedResource(), { anonymize: true, embedFooter: true }
+        )
+        const reserved = new TextDecoder('ascii').decode(new Uint8Array(container!.edf, 192, 44)).trim()
+        const total = Number(reserved.match(/^EDF EC:(\d+):/)![1])
+        expect(plain!.edf.byteLength).toBe(total)
+        expect(new Uint8Array(plain!.edf, 192, 44).every(byte => byte === 32)).toBe(true)
+    })
+})
+
 describe('EdfExporter.convertResource', () => {
     test('caches the resource signals, then encodes it', async () => {
         const resource = makeResource()

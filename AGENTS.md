@@ -100,6 +100,10 @@ The format worker is pure message-in/message-out. It has no knowledge of any UI 
 
 `EdfExporter` (`GenericStudyExporter`) writes a recording back out as an anonymised EDF plus a metadata sidecar. Its public surface is `encodeResource`, `convertResource` (the import-to-export conversion path, which pulls signals through `BiosignalResource.loadAndCacheSignals()`), `exportActiveResource` and `exportStudyToFileSystem`; `exportStudyToDataset` is declared but not yet supported.
 
+Events and labels reach the sidecar as templates, reduced in `EdfExporter` from the live assets: an asset serialised whole would carry its internal state under private names, and the template is what the sidecar's type promises. An event's `codes` ride along, which is how a recording the viewer has coded against the shared vocabularies keeps those codes through export.
+
+With `embedFooter`, the exporter produces the container the platform ingests: the same EDF with the sidecar appended as a footer after the last data record, marked in the header's reserved field as `EDF EC:<byte size of header and records>:<footer size in whole KiB>`. The container is plain EDF whatever the recording's continuity, since the file carries no annotation channel and the footer carries the interruptions, and the footer is anonymised whenever the file is. The platform detaches the footer at ingest and stores the EDF alone; nothing on the platform reads the sidecar file, so a recording meant for it travels as the container.
+
 The encode step itself lives in [src/edf/encodePayload.ts](src/edf/encodePayload.ts), free of DOM and worker APIs, so it runs on either thread. `EdfExporter._encode` uses a worker when the host has supplied a factory through `setWorkerOverride` and falls back to encoding in place when it has not — nothing in this package constructs the writer worker, which is why it is built only into `umd/` and why `dist/workers/` holds its declaration but no module.
 
 ---

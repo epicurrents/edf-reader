@@ -12,6 +12,7 @@ import type {
     AnnotationEventTemplate,
     AnnotationLabelTemplate,
     BiosignalHeaderRecord,
+    BiosignalHeaderSignal,
 } from '@epicurrents/core/types'
 
 const event: AnnotationEventTemplate = {
@@ -86,5 +87,98 @@ describe('EdfEncoder sidecar', () => {
         expect(parsed).not.toHaveProperty('annotations')
         // The annotations are still held on the encoder for potential future use.
         expect(encoder.annotations).toHaveLength(1)
+    })
+})
+
+describe('EdfEncoder embedded footer', () => {
+    const RECORDS = 2
+    const SAMPLES = 8
+    /** The byte size of the header and the data records of the container encoders below: 16-bit samples. */
+    const EDF_BYTES = 256 + 256 + SAMPLES*2
+
+    /** An encoder with one signal, one coded event and one interruption, ready to encode. */
+    function makeContainerEncoder (discontinuous = false): EdfEncoder {
+        const encoder = new EdfEncoder('eeg')
+        encoder.setHeader({
+            patientId: 'John Doe 1975-01-01',
+            recordingId: 'EMU visit 2024-03-02',
+            recordingStartTime: new Date('2024-03-02T09:30:00.000Z'),
+            dataUnitCount: RECORDS,
+            dataUnitDuration: 1,
+            discontinuous,
+            signalCount: 1,
+            signals: [{
+                label: 'CH0',
+                name: 'CH0',
+                modality: 'eeg',
+                physicalUnit: '',
+                prefiltering: { highpass: null, lowpass: null, notch: null },
+                sampleCount: SAMPLES,
+                samplingRate: SAMPLES/RECORDS,
+                sensitivity: 0,
+                sensor: '',
+            }] as unknown as BiosignalHeaderSignal[],
+            events: [{ ...event, codes: { 'epicurrents.eeg': 'EEG_ACT_EC' } }],
+            labels: [],
+        } as Partial<BiosignalHeaderRecord>)
+        encoder.amplitudeRanges.set(0, [-100, 100])
+        encoder.setSignals([new Float32Array(SAMPLES)])
+        encoder.setInterruptions(new Map([[1, 3]]))
+        return encoder
+    }
+
+    function reservedOf (buffer: ArrayBuffer): string {
+        return new TextDecoder('ascii').decode(new Uint8Array(buffer, 192, 44)).trim()
+    }
+
+    function markerOf (buffer: ArrayBuffer): { total: number, kib: number } {
+        const match = reservedOf(buffer).match(/^EDF EC:(\d+):(\d+)$/)
+        expect(match).not.toBeNull()
+        return { total: Number(match![1]), kib: Number(match![2]) }
+    }
+
+    function footerOf (buffer: ArrayBuffer): EdfSidecar {
+        const { total, kib } = markerOf(buffer)
+        const text = new TextDecoder().decode(new Uint8Array(buffer, total, kib*1024)).replace(/\0+$/, '')
+        return JSON.parse(text) as EdfSidecar
+    }
+
+    test('the reserved field marks the container with the EDF size and the footer size', async () => {
+        const buffer = await makeContainerEncoder().encode(true, { embedFooter: true })
+        expect(buffer).not.toBeNull()
+        const { total, kib } = markerOf(buffer!)
+        expect(total).toBe(EDF_BYTES)
+        expect(kib).toBeGreaterThan(0)
+        expect(buffer!.byteLength).toBe(total + kib*1024)
+    })
+
+    test('the footer is the sidecar, codes and interruptions included', async () => {
+        const encoder = makeContainerEncoder()
+        const buffer = await encoder.encode(false, { embedFooter: true })
+        const footer = footerOf(buffer!)
+        expect(footer).toEqual(JSON.parse(encoder.buildSidecar({ anonymize: false })))
+        expect(footer.events[0].codes).toEqual({ 'epicurrents.eeg': 'EEG_ACT_EC' })
+        expect(footer.interruptions).toEqual([[1, 3]])
+        expect(footer.subject.patientId).toBe('John Doe 1975-01-01')
+    })
+
+    test('the footer follows the anonymization asked of it and keeps the codes', async () => {
+        const buffer = await makeContainerEncoder().encode(true, { embedFooter: true, embedFooterAnonymized: true })
+        const footer = footerOf(buffer!)
+        expect(footer.subject.patientId).toBeNull()
+        expect(footer.events[0].text).toBe('')
+        expect(footer.events[0].codes).toEqual({ 'epicurrents.eeg': 'EEG_ACT_EC' })
+    })
+
+    test('a discontinuous recording is still a plain EDF container', async () => {
+        const buffer = await makeContainerEncoder(true).encode(true, { embedFooter: true })
+        expect(reservedOf(buffer!)).toMatch(/^EDF EC:/)
+        expect(footerOf(buffer!).interruptions).toEqual([[1, 3]])
+    })
+
+    test('without the option the reserved field is standard and nothing follows the records', async () => {
+        const buffer = await makeContainerEncoder().encode(true)
+        expect(reservedOf(buffer!)).toBe('')
+        expect(buffer!.byteLength).toBe(EDF_BYTES)
     })
 })
