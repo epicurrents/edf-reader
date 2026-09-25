@@ -11,20 +11,20 @@ import type {
     AnnotationEventTemplate,
     AnnotationLabelTemplate,
     BiosignalAnnotationEvent,
-    BiosignalExportChannel,
-    BiosignalExportSelection,
     BiosignalHeaderRecord,
     BiosignalMontage,
     BiosignalResource,
     DerivedChannelProperties,
     FileFormatExporter,
     MediaDataset,
+    SignalExportChannel,
+    SignalExportSelection,
+    SignalExportSourceChannel,
 } from '@epicurrents/core/types'
 import {
     applyExportSelection,
     DOWNSAMPLE_CUTOFF_FRACTION,
     getSignalScale,
-    type ExportSourceSignalChannel,
 } from '@epicurrents/core/util'
 import { encodePayload, type EdfEncodePayload } from './encodePayload'
 import { extractSignalModality } from '#util'
@@ -58,7 +58,7 @@ export type EdfExportOptions = {
      * and re-based to its start, and an event keeps only the channels the selection keeps. The whole recording when
      * omitted. The output rate must be a whole number of hertz, since the file is written in one-second records.
      */
-    selection?: BiosignalExportSelection
+    selection?: SignalExportSelection
 }
 
 /**
@@ -313,7 +313,7 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
             signalsByIndex.set(index, source instanceof Float32Array ? source : Float32Array.from(source))
         }
         const names = recordMontageNames(resource.recordMontage)
-        const sources = resource.channels.map((channel, index): ExportSourceSignalChannel => ({
+        const sources = resource.channels.map((channel, index): SignalExportSourceChannel => ({
             label: channel.label,
             modality: channel.modality,
             name: names.get(index) ?? channel.name,
@@ -324,7 +324,7 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
         }))
         // The selection's amplitude ranges are in each channel's unit, the signals in base units: the transform clips
         // with ranges scaled to the signal, and the encoder writes the ranges as given into the header.
-        const outputs: BiosignalExportChannel[] = selection.channels
+        const outputs: SignalExportChannel[] = selection.channels
                                                   ?? signalChannels.map(({ index }) => ({ source: index }))
         const unitRanges = outputs.map(output => output.amplitudeRange ?? selection.amplitudeRange)
         const result = applyExportSelection(
