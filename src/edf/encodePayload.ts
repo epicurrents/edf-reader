@@ -63,6 +63,8 @@ export type EdfEncodePayload = {
     interruptions: [number, number][]
     /** Recording modality. */
     modality: EdfRecordingType
+    /** Keys left out of the sidecar and the embedded footer wherever they occur (see `EdfExportOptions`). */
+    removeMetadataKeys?: string[]
     /** Number of one-second data records to write. */
     recordCount: number
     /** Per-channel signal data in base units (e.g. volts), index-aligned with `channels`. */
@@ -164,11 +166,15 @@ export async function encodePayload (payload: EdfEncodePayload): Promise<EdfEnco
     const edf = await encoder.encode(payload.deidentify, {
         embedFooter: payload.embedFooter ?? false,
         embedFooterDeidentified: payload.deidentify || payload.deidentifySidecar,
+        removeMetadataKeys: payload.removeMetadataKeys,
     })
     if (!edf) {
         Log.error(`Encoding the EDF file failed.`, SCOPE)
         return null
     }
-    const sidecar = encoder.buildSidecar({ deidentify: payload.deidentifySidecar })
+    const sidecar = encoder.buildSidecar({
+        deidentify: payload.deidentifySidecar,
+        removeMetadataKeys: payload.removeMetadataKeys,
+    })
     return { edf, sidecar }
 }

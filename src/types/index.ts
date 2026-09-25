@@ -144,6 +144,11 @@ export type EdfEncodeOptions = {
      * flag, so a de-identified file may still embed original metadata (or vice versa). Defaults to the `deidentify` value.
      */
     embedFooterDeidentified?: boolean
+    /**
+     * Keys removed from the embedded footer wherever they occur, at any depth. For a destination that refuses metadata
+     * carrying them.
+     */
+    removeMetadataKeys?: string[]
 }
 
 /**

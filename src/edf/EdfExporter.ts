@@ -52,6 +52,12 @@ export type EdfExportOptions = {
      */
     embedFooter?: boolean
     /**
+     * Keys to leave out of the sidecar and the embedded footer wherever they occur, at any depth: the metadata a
+     * destination refuses, which a target states as `SignalExportConstraints.forbiddenMetadataKeys`. Removal follows
+     * de-identification, so a key it only blanks, such as `subject`, is gone entirely.
+     */
+    removeMetadataKeys?: string[]
+    /**
      * Reduce the recording before encoding it: a range, an ordered set of channels under output labels, one output
      * rate and an amplitude range, applied with core's `applyExportSelection`. Amplitude ranges are in each channel's
      * unit and become the channels' physical range in the header. Events and interruptions are clipped to the range
@@ -409,6 +415,7 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
             interruptions: result.interruptions,
             modality: (resource.modality || 'eeg') as EdfRecordingType,
             recordCount,
+            removeMetadataKeys: options.removeMetadataKeys ?? [],
             signals,
             subject: {
                 patientId: sourceHeader?.patientId ?? null,

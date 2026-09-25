@@ -259,19 +259,34 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         return Array.from(interruptions.entries(), ([start, duration]): [number, number] => [start, duration])
     }
 
+    /**
+     * Serialize the sidecar object, leaving out every property named in `removeKeys` at any depth. Array indices are
+     * never matched, so a key that happens to be numeric removes object properties only.
+     */
+    #serializeSidecar (deidentify: boolean, removeKeys: string[]): string {
+        const sidecar = this.#buildSidecarObject(deidentify)
+        if (!removeKeys.length) {
+            return JSON.stringify(sidecar)
+        }
+        const remove = new Set(removeKeys)
+        return JSON.stringify(sidecar, function (this: unknown, key: string, value: unknown) {
+            return key && !Array.isArray(this) && remove.has(key) ? undefined : value
+        })
+    }
+
     /** Remove the free-text and author fields from events or labels, preserving their structural properties. */
     #stripAnnotationText<T extends AnnotationTemplate> (items: T[]): T[] {
         return items.map(item => ({ ...item, annotator: undefined, text: '' }))
     }
 
-    async #writeFooterBuffer (deidentify = false): Promise<ArrayBuffer | null> {
+    async #writeFooterBuffer (deidentify = false, removeKeys: string[] = []): Promise<ArrayBuffer | null> {
         this.#buffers.footer = null
         if (!this.#locked) {
             Log.error(`Cannot write footer buffer, header properties are not locked.`, SCOPE)
             return null
         }
         // Create a JSON string from the sidecar object and convert to an UTF-8 byte array.
-        const footerBytes = new TextEncoder().encode(JSON.stringify(this.#buildSidecarObject(deidentify)))
+        const footerBytes = new TextEncoder().encode(this.#serializeSidecar(deidentify, removeKeys))
         // Calculate the size of the footer in KB.
         const footerSize = Math.ceil(footerBytes.length / 1024)
         // Create an ArrayBuffer for the footer, padded to a full KB.
@@ -571,11 +586,11 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
     /**
      * Build the sidecar metadata as a JSON string. This is the primary metadata artifact for de-identified exports; it
      * carries the original (or, when de-identified, blanked) subject information, signal descriptions, events, and labels.
-     * @param options - Set `deidentify` to blank subject identifiers and strip event/label text.
+     * @param options - Set `deidentify` to blank subject identifiers and strip event/label text, and `removeMetadataKeys` to leave out the properties so named at any depth.
      * @returns The sidecar as a JSON string.
      */
-    buildSidecar (options: { deidentify?: boolean } = {}): string {
-        return JSON.stringify(this.#buildSidecarObject(options.deidentify ?? false))
+    buildSidecar (options: { deidentify?: boolean, removeMetadataKeys?: string[] } = {}): string {
+        return this.#serializeSidecar(options.deidentify ?? false, options.removeMetadataKeys ?? [])
     }
 
     createHeader (properties?: Partial<BiosignalHeaderRecord>) {
@@ -643,7 +658,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         // separate file via `buildSidecar`.
         let footerBuffer: ArrayBuffer | null = null
         if (embedFooter) {
-            footerBuffer = await this.#writeFooterBuffer(embedFooterDeidentified)
+            footerBuffer = await this.#writeFooterBuffer(embedFooterDeidentified, options.removeMetadataKeys)
             if (!footerBuffer) {
                 Log.error(`Failed to write footer buffer.`, SCOPE)
                 this.#locked = false

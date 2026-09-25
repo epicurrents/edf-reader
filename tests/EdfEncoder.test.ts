@@ -80,6 +80,22 @@ describe('EdfEncoder sidecar', () => {
         expect(sidecar.interruptions).toEqual([[10, 5], [40, 2]])
     })
 
+    test('removed metadata keys are left out at any depth and the rest survives', () => {
+        const encoder = makeEncoder()
+        const parsed = JSON.parse(encoder.buildSidecar({
+            deidentify: true,
+            removeMetadataKeys: ['subject', 'text', 'annotator', '0'],
+        }))
+        expect(parsed).not.toHaveProperty('subject')
+        expect(parsed.events[0]).not.toHaveProperty('text')
+        expect(parsed.labels[0]).not.toHaveProperty('text')
+        expect(parsed.events[0].start).toBe(12)
+        expect(parsed.events[0].value).toBe('blink')
+        // A numeric key never matches an array index.
+        expect(parsed.interruptions).toEqual([[10, 5], [40, 2]])
+        expect(parsed.version).toBe('1.0')
+    })
+
     test('sidecar excludes free-form annotations', () => {
         const encoder = makeEncoder()
         encoder.setAnnotations([{ class: 'comment', priority: 200, value: 'private note' }])
@@ -168,6 +184,20 @@ describe('EdfEncoder embedded footer', () => {
         expect(footer.subject.patientId).toBeNull()
         expect(footer.events[0].text).toBe('')
         expect(footer.events[0].codes).toEqual({ 'epicurrents.eeg': 'EEG_ACT_EC' })
+    })
+
+    test('the footer leaves out the removed metadata keys and the marker names its reduced size', async () => {
+        const buffer = await makeContainerEncoder().encode(true, {
+            embedFooter: true,
+            embedFooterDeidentified: true,
+            removeMetadataKeys: ['subject', 'text'],
+        })
+        const footer = footerOf(buffer!) as unknown as Record<string, unknown> & { events: Record<string, unknown>[] }
+        expect(footer).not.toHaveProperty('subject')
+        expect(footer.events[0]).not.toHaveProperty('text')
+        expect(footer.events[0].codes).toEqual({ 'epicurrents.eeg': 'EEG_ACT_EC' })
+        const { total, kib } = markerOf(buffer!)
+        expect(buffer!.byteLength).toBe(total + kib*1024)
     })
 
     test('a discontinuous recording is still a plain EDF container', async () => {
