@@ -51,6 +51,8 @@ export type EdfEncodePayload = {
     deidentify: boolean
     /** De-identify the metadata sidecar as well. */
     deidentifySidecar: boolean
+    /** Dither the samples as they are quantized (see `EdfExportOptions.dither`). Defaults to false. */
+    dither?: boolean
     /** Channel descriptions, index-aligned with `signals`. */
     channels: EdfEncodePayloadChannel[]
     /** Embed the sidecar as a footer inside the EDF file (see `EdfExportOptions.embedFooter`). Defaults to false. */
@@ -164,6 +166,7 @@ export async function encodePayload (payload: EdfEncodePayload): Promise<EdfEnco
     // The footer sits inside the file, so it is de-identified whenever the file is; the separate sidecar keeps its
     // own switch, since it is what stays with the exporter as the re-identification key.
     const edf = await encoder.encode(payload.deidentify, {
+        dither: payload.dither ?? false,
         embedFooter: payload.embedFooter ?? false,
         embedFooterDeidentified: payload.deidentify || payload.deidentifySidecar,
         removeMetadataKeys: payload.removeMetadataKeys,

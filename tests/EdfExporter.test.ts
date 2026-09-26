@@ -251,6 +251,22 @@ describe('EdfExporter sidecar templates and the container', () => {
     })
 })
 
+describe('EdfExporter dither', () => {
+    test('passes dither to the encoder, so two exports of one recording differ', async () => {
+        const exporter = new EdfExporter()
+        const plain = [
+            await exporter.encodeResource(makeResource(), { deidentify: true }),
+            await exporter.encodeResource(makeResource(), { deidentify: true }),
+        ]
+        expect(new Uint8Array(plain[0]!.edf)).toEqual(new Uint8Array(plain[1]!.edf))
+        const dithered = [
+            await exporter.encodeResource(makeResource(), { deidentify: true, dither: true }),
+            await exporter.encodeResource(makeResource(), { deidentify: true, dither: true }),
+        ]
+        expect(new Uint8Array(dithered[0]!.edf)).not.toEqual(new Uint8Array(dithered[1]!.edf))
+    })
+})
+
 describe('EdfExporter selection', () => {
     /** A bare event on the given record-montage references, inside the three-second recording. */
     const event = (channels: (number | string)[], value: string) => ({

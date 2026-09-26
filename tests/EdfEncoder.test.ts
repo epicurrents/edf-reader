@@ -233,3 +233,80 @@ describe('EdfEncoder embedded footer', () => {
         expect(buffer!.byteLength).toBe(EDF_BYTES)
     })
 })
+
+describe('EdfEncoder dither', () => {
+    const RATE = 200
+    const RECORDS = 3
+    const HEADER_BYTES = 256 + 256
+
+    /** An encoder with one channel of a slow sine over ±100, spanning the digital range. */
+    function makeSineEncoder (): EdfEncoder {
+        const encoder = new EdfEncoder('eeg')
+        encoder.setHeader({
+            dataUnitCount: RECORDS,
+            dataUnitDuration: 1,
+            signalCount: 1,
+            signals: [{
+                label: 'CH0',
+                name: 'CH0',
+                modality: 'eeg',
+                physicalUnit: '',
+                prefiltering: { highpass: null, lowpass: null, notch: null },
+                sampleCount: RATE*RECORDS,
+                samplingRate: RATE,
+                sensitivity: 0,
+                sensor: '',
+            }] as unknown as BiosignalHeaderSignal[],
+            events: [],
+            labels: [],
+        } as Partial<BiosignalHeaderRecord>)
+        encoder.amplitudeRanges.set(0, [-100, 100])
+        const signal = new Float32Array(RATE*RECORDS)
+        for (let i = 0; i < signal.length; i++) {
+            signal[i] = 90*Math.sin(i/7)
+        }
+        encoder.setSignals([signal])
+        return encoder
+    }
+
+    function samplesOf (buffer: ArrayBuffer): Int16Array {
+        return new Int16Array(buffer.slice(HEADER_BYTES))
+    }
+
+    test('an undithered export is the same bytes every time', async () => {
+        const first = await makeSineEncoder().encode(true)
+        const second = await makeSineEncoder().encode(true)
+        expect(new Uint8Array(first!)).toEqual(new Uint8Array(second!))
+    })
+
+    test('a dithered export differs every time while its header does not', async () => {
+        const first = await makeSineEncoder().encode(true, { dither: true })
+        const second = await makeSineEncoder().encode(true, { dither: true })
+        expect(new Uint8Array(first!, 0, HEADER_BYTES)).toEqual(new Uint8Array(second!, 0, HEADER_BYTES))
+        expect(samplesOf(first!)).not.toEqual(samplesOf(second!))
+    })
+
+    test('noise for a record longer than one random-source call allows is filled throughout', () => {
+        const count = EdfEncoder.RANDOM_WORDS_PER_CALL*2 + 5
+        const words = EdfEncoder.randomWords(count)
+        expect(words.length).toBe(count)
+        // An unfilled stretch would be zeros; a filled one of this length practically never is.
+        expect(words.subarray(EdfEncoder.RANDOM_WORDS_PER_CALL*2).some(word => word !== 0)).toBe(true)
+        expect(words.subarray(EdfEncoder.RANDOM_WORDS_PER_CALL, EdfEncoder.RANDOM_WORDS_PER_CALL + 64).some(word => word !== 0)).toBe(true)
+    })
+
+    test('dither moves no sample by more than one digital step', async () => {
+        const plain = samplesOf((await makeSineEncoder().encode(true))!)
+        const dithered = samplesOf((await makeSineEncoder().encode(true, { dither: true }))!)
+        expect(dithered.length).toBe(plain.length)
+        let moved = 0
+        for (let i = 0; i < plain.length; i++) {
+            expect(Math.abs(dithered[i] - plain[i])).toBeLessThanOrEqual(1)
+            if (dithered[i] !== plain[i]) {
+                moved++
+            }
+        }
+        // Uniform noise of half a step moves a sample to its other neighbour a quarter of the time on average.
+        expect(moved).toBeGreaterThan(plain.length/10)
+    })
+})

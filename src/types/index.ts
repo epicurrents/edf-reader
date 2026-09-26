@@ -135,6 +135,12 @@ export type EdfFooterChannel = SafeObject & {
  */
 export type EdfEncodeOptions = {
     /**
+     * Add noise of under one digital step to each physical sample before it is rounded, so that encoding the same
+     * signal twice never gives the same bytes. It defeats matching an export against a copy re-encoded from the
+     * original, not correlating the two signals. Defaults to false.
+     */
+    dither?: boolean
+    /**
      * Embed the sidecar metadata as a JSON footer appended to the EDF file. Defaults to false; the primary export
      * path delivers the sidecar as a separate file via the encoder's `buildSidecar` method instead.
      */

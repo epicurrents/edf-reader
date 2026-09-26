@@ -44,6 +44,13 @@ export type EdfExportOptions = {
     /** De-identify the metadata sidecar as well. Defaults to false, so the sidecar preserves the original metadata. */
     deidentifySidecar?: boolean
     /**
+     * Dither the samples as they are quantized: noise of under one digital step, from a cryptographic source, before
+     * rounding. The same recording exported twice then never gives the same bytes, so an export cannot be found by
+     * re-encoding a copy of the original and comparing bytes or hashes. It does not stop correlating the signal with
+     * the original, since the noise stays under one quantization step and leaves the signal's shape unchanged. Defaults to false.
+     */
+    dither?: boolean
+    /**
      * Embed the sidecar as a footer inside the EDF file, marked in the header's reserved field, so the recording
      * travels as one file. This is the container the platform ingests: it detaches the footer and stores the EDF
      * alone, and the footer's events, with the codes they carry, and interruptions become its rows. The footer is
@@ -409,6 +416,7 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
             deidentify: options.deidentify ?? true,
             deidentifySidecar: options.deidentifySidecar ?? false,
             channels: payloadChannels,
+            dither: options.dither ?? false,
             embedFooter: options.embedFooter ?? false,
             events: result.events,
             labels: resource.labels.map(labelTemplate),

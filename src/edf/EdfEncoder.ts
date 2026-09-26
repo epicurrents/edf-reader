@@ -68,6 +68,8 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
     static readonly DIGITAL_MIN = -32768
     /** ASCII code for the empty space to use to pad header fields. */
     static readonly EMPTY_SPACE = 32
+    /** The most 32-bit words one `crypto.getRandomValues` call fills; it refuses a request over 65536 bytes. */
+    static readonly RANDOM_WORDS_PER_CALL = 16384
     static SAMPLE_SIZE = 2 // Each sample is 2 bytes by default (Int16).
     /** TAL field delimiter code. */
     static readonly TAL_DELIMITER = 20
@@ -90,6 +92,18 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
      * Create a new EDF encoder.
      * @param recordingType The type of the recording (e.g. 'eeg').
      */
+    /**
+     * Fill `count` 32-bit words from the platform's cryptographic source, in as many calls as its per-call limit needs.
+     * @param count - Number of words to fill.
+     */
+    static randomWords (count: number): Uint32Array {
+        const words = new Uint32Array(count)
+        for (let start = 0; start < count; start += EdfEncoder.RANDOM_WORDS_PER_CALL) {
+            crypto.getRandomValues(words.subarray(start, Math.min(count, start + EdfEncoder.RANDOM_WORDS_PER_CALL)))
+        }
+        return words
+    }
+
     constructor (recordingType: EdfRecordingType, dataEncoding: TypedNumberArrayConstructor = Int16Array) {
         super('edf-encoder', 'writer')
         this.#dataEncoding = dataEncoding
@@ -489,7 +503,13 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         return headerBuffer
     }
 
-    async #writeSignalBuffer (): Promise<ArrayBuffer | null> {
+    /**
+     * Write the data records. With `dither`, each physical sample is offset by uniform noise of up to half a digital
+     * step before rounding, drawn from the platform's cryptographic source, so encoding the same signal twice gives
+     * different bytes. A sample then lands on one of the two digital values around it rather than always the nearer,
+     * an error of under one step. Digital signals are copied as given and never dithered.
+     */
+    async #writeSignalBuffer (dither = false): Promise<ArrayBuffer | null> {
         this.#buffers.signals = null
         if (!this.#header) {
             Log.error(`Cannot write signal buffer, current header property is empty.`, SCOPE)
@@ -567,8 +587,12 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
                     const unitsPerBit = physMax > physMin
                                       ? (physMax - physMin)/(EdfEncoder.DIGITAL_MAX - EdfEncoder.DIGITAL_MIN)
                                       : 1
+                    const noise = dither ? EdfEncoder.randomWords(spr) : null
                     for (let j = 0; j < spr; j++) {
-                        const digital = Math.round((physical[r*spr + j] - physMin)/unitsPerBit) + EdfEncoder.DIGITAL_MIN
+                        // Uniform in [-0.5, 0.5) of one step.
+                        const offset = noise ? noise[j]/0x100000000 - 0.5 : 0
+                        const digital = Math.round((physical[r*spr + j] - physMin)/unitsPerBit + offset)
+                                      + EdfEncoder.DIGITAL_MIN
                         const clamped = Math.max(EdfEncoder.DIGITAL_MIN, Math.min(EdfEncoder.DIGITAL_MAX, digital))
                         signalView.setInt16(byteOffset + j*EdfEncoder.SAMPLE_SIZE, clamped, true)
                     }
@@ -669,7 +693,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
             Log.debug(`Footer buffer written, size: ${footerBuffer.byteLength} bytes.`, SCOPE)
         }
         // The data records are written before the header because the container marker names their size.
-        const signalBuffer = await this.#writeSignalBuffer()
+        const signalBuffer = await this.#writeSignalBuffer(options.dither ?? false)
         if (!signalBuffer) {
             Log.error(`Failed to write signal buffer.`, SCOPE)
             this.#locked = false
