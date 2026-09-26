@@ -186,7 +186,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
                 physicalMax: physMax,
                 preFilters: signal.prefiltering || { highpass: null, lowpass: null, notch: null },
                 sampleCount: signal.sampleCount || 0,
-                samplesPerRecord: signal.sampleCount || 0,
+                samplesPerRecord: signal.samplingRate || 0,
                 samplingRate: signal.samplingRate || 0,
                 scale: 0,
                 sensitivity: signal.sensitivity || 0,
@@ -337,7 +337,9 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
         for (let i = 0; i < 80; i++) {
             headerView.setUint8(offset++, recordingId.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }
-        // Write the recording date.
+        // Write the recording date. A de-identified file carries 01.01.85 00.00.00, the EDF+ placeholder for an unknown
+        // start and what the platform's own de-identifier writes, so a file prepared here passes a check for exactly
+        // those bytes.
         const headerDateTime = this.#header.recordingStartTime?.toISOString().replace(/[-:T]/g, '.').slice(0, 14)
         const recordingDateTime = headerDateTime && !deidentify
                                 ? `${headerDateTime.slice(6, 8)}.${headerDateTime.slice(4, 6)}.${
@@ -349,7 +351,7 @@ export default class EdfEncoder extends GenericAsset implements SignalDataEncode
                                     }.${
                                         headerDateTime.slice(12, 14)
                                     }`
-                                : '01.01.0000.00.00'
+                                : '01.01.8500.00.00'
         for (let i = 0; i < 16; i++) {
             headerView.setUint8(offset++, recordingDateTime.charCodeAt(i) || EdfEncoder.EMPTY_SPACE)
         }

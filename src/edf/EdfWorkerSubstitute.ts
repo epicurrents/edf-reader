@@ -11,7 +11,6 @@ import { validateCommissionProps } from '@epicurrents/core/util'
 import {
     type BiosignalHeaderRecord,
     type ConfigChannelFilter,
-    type GetSignalsResponse,
     type SignalRequest,
     type WorkerMessage,
 } from '@epicurrents/core/types'
@@ -45,8 +44,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             case 'cache-signals': {
                 try {
                     const success = await this._reader.cacheSignals()
-                    return this.returnSuccess({
-                        ...message,
+                    return this.returnSuccess(message, {
                         complete: success,
                     })
                 } catch (e: unknown) {
@@ -82,12 +80,11 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                     const events = this._reader.getEvents(data.range)
                     const interruptions = this._reader.getInterruptions(data.range)
                     if (sigs) {
-                        return this.returnSuccess({
-                            ...message,
+                        return this.returnSuccess(message, {
                             events,
                             interruptions,
                             ...sigs,
-                        } as WorkerMessage['data'] & Omit<GetSignalsResponse, 'success'>)
+                        })
                     } else {
                         return this.returnFailure(message)
                     }
@@ -123,8 +120,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 // request's ready promise settles.
                 const postStage = (result: SignalRequest, final: boolean) => {
                     const part = 'part' in result ? result.part : null
-                    this.returnSuccess({
-                        ...message,
+                    this.returnSuccess(message, {
                         status: result.status,
                         final: final,
                         ...(part ? { start: part.start, end: part.end, signals: part.signals } : {}),
@@ -182,8 +178,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 // Duration is not a mandatory property.
                 const duration = (message.dataDuration as number) || 0
                 const cache = this._reader.setupCache(duration)
-                return this.returnSuccess({
-                    ...message,
+                return this.returnSuccess(message, {
                     cacheProperties: cache,
                 })
             }
@@ -218,8 +213,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                     data.formatHeader
                 )
                 if (result) {
-                    return this.returnSuccess({
-                        ...message,
+                    return this.returnSuccess(message, {
                         dataLength: this._reader.dataLength,
                         recordingLength: this._reader.totalLength,
                     })

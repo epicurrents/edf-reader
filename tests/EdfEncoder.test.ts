@@ -159,6 +159,17 @@ describe('EdfEncoder embedded footer', () => {
         return JSON.parse(text) as EdfSidecar
     }
 
+    test('a de-identified header carries the placeholder identification, date and time', async () => {
+        const buffer = await makeContainerEncoder().encode(true)
+        const field = (offset: number, width: number) => {
+            return new TextDecoder('ascii').decode(new Uint8Array(buffer!, offset, width)).trim()
+        }
+        expect(field(8, 80)).toBe('X X X X')
+        expect(field(88, 80)).toBe('Startdate X X X X')
+        expect(field(168, 8)).toBe('01.01.85')
+        expect(field(176, 8)).toBe('00.00.00')
+    })
+
     test('the reserved field marks the container with the EDF size and the footer size', async () => {
         const buffer = await makeContainerEncoder().encode(true, { embedFooter: true })
         expect(buffer).not.toBeNull()
@@ -198,6 +209,16 @@ describe('EdfEncoder embedded footer', () => {
         expect(footer.events[0].codes).toEqual({ 'epicurrents.eeg': 'EEG_ACT_EC' })
         const { total, kib } = markerOf(buffer!)
         expect(buffer!.byteLength).toBe(total + kib*1024)
+    })
+
+    test('a footer channel carries the per-record sample count the header writes', async () => {
+        const buffer = await makeContainerEncoder().encode(true, { embedFooter: true })
+        // One signal: the samples-per-record field follows the 216 bytes of the signal fields before it.
+        const headerCount = new TextDecoder('ascii').decode(new Uint8Array(buffer!, 256 + 216, 8)).trim()
+        const channel = footerOf(buffer!).channels[0]
+        expect(channel.samplesPerRecord).toBe(Number(headerCount))
+        expect(channel.samplesPerRecord).toBe(SAMPLES/RECORDS)
+        expect(channel.sampleCount).toBe(SAMPLES)
     })
 
     test('a discontinuous recording is still a plain EDF container', async () => {
