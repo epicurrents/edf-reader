@@ -310,3 +310,101 @@ describe('EdfEncoder dither', () => {
         expect(moved).toBeGreaterThan(plain.length/10)
     })
 })
+
+describe('EdfEncoder header fields', () => {
+    /** An encoder holding `signals`, with the physical range of each set to `ranges` where given. */
+    function encoderWith (
+        signals: Partial<BiosignalHeaderSignal>[],
+        ranges?: [number, number][],
+        recordingStartTime = new Date('2024-03-02T09:30:00.000Z')
+    ) {
+        const encoder = new EdfEncoder('eeg')
+        encoder.setHeader({
+            dataUnitCount: 1,
+            dataUnitDuration: 1,
+            patientId: 'Subject 1',
+            recordingId: 'Recording 1',
+            recordingStartTime,
+            signalCount: signals.length,
+            signals: signals.map(signal => ({
+                label: 'EEG Fp1',
+                modality: 'eeg',
+                name: 'Fp1',
+                physicalUnit: 'uV',
+                prefiltering: { highpass: null, lowpass: null, notch: null },
+                sampleCount: 4,
+                samplingRate: 4,
+                sensitivity: 0,
+                sensor: '',
+                ...signal,
+            })) as BiosignalHeaderSignal[],
+        } as never)
+        ranges?.forEach((range, i) => encoder.amplitudeRanges.set(i, range))
+        encoder.setSignals(signals.map(() => new Float32Array(4)))
+        return encoder
+    }
+
+    /** Read a fixed-width field out of an encoded header. */
+    const field = (buffer: ArrayBuffer, offset: number, width: number) =>
+        new TextDecoder().decode(new Uint8Array(buffer, offset, width)).trim()
+
+    test('the header declares the signals it writes, not the ones it was handed', async () => {
+        // The annotation channel is never encoded, so counting the header's own signals declared a channel the file
+        // does not hold and left a reader parsing the first data record as though it did.
+        const encoder = encoderWith([
+            { label: 'EEG Fp1' },
+            { label: 'EDF Annotations', physicalUnit: '' },
+        ])
+        const buffer = (await encoder.encode()) as ArrayBuffer
+        expect(field(buffer, 252, 4)).toBe('1')
+        expect(field(buffer, 184, 8)).toBe('512')
+        // One signal block after the fixed header, and the data records follow it immediately.
+        expect(field(buffer, 256, 16)).toBe('EEG Fp1')
+        expect(buffer.byteLength).toBe(512 + 4*2)
+    })
+
+    test('a physical range too long for its field is rounded to fit rather than cut short', async () => {
+        const encoder = encoderWith([{}], [[-123.456789012345, 123.456789012345]])
+        const buffer = (await encoder.encode()) as ArrayBuffer
+        const physMin = field(buffer, 256 + 16 + 80 + 8, 8)
+        const physMax = field(buffer, 256 + 16 + 80 + 8 + 8, 8)
+        expect(physMin.length).toBeLessThanOrEqual(8)
+        expect(parseFloat(physMin)).toBeCloseTo(-123.456789, 2)
+        expect(parseFloat(physMax)).toBeCloseTo(123.456789, 2)
+    })
+
+    test('a magnitude below what a decimal field holds keeps its sign and its order', async () => {
+        // `(-1.2345e-7).toString()` is ten characters, whose first eight parse back as 1.2345: sign gone, magnitude
+        // out by seven orders. The field has to stay readable as the number it stands for.
+        const encoder = encoderWith([{}], [[-1.2345e-7, 1.2345e-7]])
+        const buffer = (await encoder.encode()) as ArrayBuffer
+        const physMin = parseFloat(field(buffer, 256 + 16 + 80 + 8, 8))
+        expect(physMin).toBeLessThan(0)
+        expect(Math.abs(physMin)).toBeGreaterThan(1e-8)
+        expect(Math.abs(physMin)).toBeLessThan(1e-6)
+    })
+
+    test('the recording start is written in local time, as the format states it', async () => {
+        // The fields are `dd.mm.yy` and `hh.mm.ss` of the recording's own local time, which is how the decoder reads
+        // them back. Building them by slicing an ISO string whose separators had been replaced rather than removed
+        // put every character in the wrong place; the only date assertion the suite had was on the de-identified
+        // branch, which takes neither path, so a corrupt field went unnoticed on every other export.
+        const start = new Date(2024, 2, 2, 9, 30, 45)
+        const buffer = (await encoderWith([{}], [[-100, 100]], start).encode()) as ArrayBuffer
+        expect(field(buffer, 168, 8)).toBe('02.03.24')
+        expect(field(buffer, 176, 8)).toBe('09.30.45')
+    })
+
+    test('a start outside the years the two-digit field spans is written as the placeholder', async () => {
+        const buffer = (await encoderWith([{}], [[-100, 100]], new Date(2090, 0, 1, 0, 0, 0)).encode()) as ArrayBuffer
+        // The EDF+ convention leaves the real date to the recording identification field.
+        expect(field(buffer, 168, 8)).toBe('01.01.yy')
+    })
+
+    test('a character outside ASCII is written as a space rather than as an unrelated byte', async () => {
+        // `setUint8` stores the low byte of a code point, so a Greek mu would otherwise be written as `¼`.
+        const encoder = encoderWith([{ physicalUnit: '\u03bcV' }])
+        const buffer = (await encoder.encode()) as ArrayBuffer
+        expect(field(buffer, 256 + 16 + 80, 8)).toBe('V')
+    })
+})

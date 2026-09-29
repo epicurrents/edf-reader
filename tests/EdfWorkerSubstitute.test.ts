@@ -54,6 +54,29 @@ describe('EdfWorkerSubstitute', () => {
         globalThis.URL.createObjectURL = () => 'blob:substitute'
     })
 
+    test('a released cache is gone by the time the reply says so', async () => {
+        const file = await encodedFile()
+        const importer = new EdfImporter()
+        expect(await importer.importFile(file)).toBeTruthy()
+        const meta = (importer as unknown as { _study: { meta: Record<string, unknown> } })._study.meta
+        const substitute = new EdfWorkerSubstitute()
+        const reader = (substitute as unknown as { _reader: { _fallbackCache: unknown, _mutex: unknown } })._reader
+        await reply(substitute, {
+            action: 'setup-worker',
+            rn: 1,
+            file,
+            formatHeader: meta.formatHeader,
+            header: (meta.header as GenericBiosignalHeader).serializable,
+        })
+        await reply(substitute, { action: 'setup-cache', rn: 2, dataDuration: RECORDS })
+        expect(reader._fallbackCache ?? reader._mutex).toBeTruthy()
+        // The teardown is asynchronous: replying without awaiting it reports a cache released while the reader is
+        // still emptying one, and a caller that sets a new study up on the strength of that reply is refused.
+        const released = await reply(substitute, { action: 'release-cache', rn: 3 })
+        expect(released).toMatchObject({ action: 'release-cache', rn: 3, success: true })
+        expect(reader._fallbackCache ?? reader._mutex).toBeFalsy()
+    })
+
     test('the setup reply carries the recording and data lengths', async () => {
         const file = await encodedFile()
         const importer = new EdfImporter()
