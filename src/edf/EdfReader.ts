@@ -95,11 +95,13 @@ export default class EdfReader extends GenericSignalReader implements SignalStud
         if (source.authHeader) {
             this._authHeader = source.authHeader
         }
-        // Reset possible running cache processes.
-        for (let i=0; i<this._cacheProcesses.length; i++) {
-            this._cacheProcesses[i].continue = false
-            this._cacheProcesses.splice(i, 1)
+        // Reset possible running cache processes. Splicing inside a forward loop moves the next
+        // element into the index just visited, so every second process kept running; stop them all
+        // first and empty the list afterwards.
+        for (const process of this._cacheProcesses) {
+            process.continue = false
         }
+        this._cacheProcesses.length = 0
         if (this._fileTypeHeader.discontinuous) {
             // We need to fetch the true file duration from the last data record.
             const filePart = await this._readPartFromFile((this._dataUnitCount - 1)*this._dataUnitDuration, 1)
@@ -119,7 +121,12 @@ export default class EdfReader extends GenericSignalReader implements SignalStud
                 this._events.clear()
                 this._interruptions.clear()
                 this._labels.length = 0
-                this._totalRecordingLength = (edfData?.interruptions.get(0) || 0) + this._fileTypeHeader.dataRecordDuration
+                // The last record was decoded on its own, so the interruption recorded at data
+                // position zero is the whole distance from the file's start to that record's own
+                // start time: every preceding record plus every gap between them. The recording
+                // ends one record later.
+                this._totalRecordingLength = (edfData?.interruptions.get(0) || 0)
+                                             + this._fileTypeHeader.dataRecordDuration
             }
         }
         this._totalRecordingLength = Math.max(

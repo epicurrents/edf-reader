@@ -94,7 +94,9 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 }
             }
             case 'release-cache': {
-                this._reader.releaseCache()
+                // The teardown is asynchronous, so replying before awaiting it reports a cache
+                // released while the reader is still emptying it.
+                await this._reader.releaseCache()
                 return this.returnSuccess(message)
             }
             case 'request-signals': {
@@ -229,7 +231,7 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
                 return this.returnSuccess(message)
             }
             default: {
-                super.postMessage(message)
+                return super.postMessage(message)
             }
         }
     }
