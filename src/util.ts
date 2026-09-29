@@ -22,13 +22,14 @@ export const extractSignalModality = (signal: { label: string }, labelMatchers?:
                         : new Map<string, string>()
     // Apply a set of default label matchers after the custom matchers.
     const defaultMatchers = [
-        // Often all signal labels in an EEG EDF export have "EEG" prefixed or mentioned,
+        // Often all signal labels in an EEG EDF export have 'EEG' prefixed or mentioned,
         // so try to match to polygraphic signals first.
-        ["emg", "emg"],
-        ["eog", "eog"],
-        ["ecg|ekg", "ekg"],
-        ["eeg", "eeg"],
-        ["edf annotations", "annotation"],
+        ['emg', 'emg'],
+        ['eog', 'eog'],
+        ['ecg|ekg', 'ekg'],
+        ['eeg', 'eeg'],
+        // A BDF+ file names the channel 'BDF Annotations', an EDF+ file 'EDF Annotations'.
+        ['(edf|bdf) annotations', 'annotation'],
     ]
     // Add default matchers if not already present.
     for (const [defLabel, defType] of defaultMatchers) {
@@ -41,7 +42,7 @@ export const extractSignalModality = (signal: { label: string }, labelMatchers?:
             return matchType
         }
     }
-    return ""
+    return ''
 }
 /**
  * Convert the given EDF header record into generic biosignal headers.
@@ -51,7 +52,10 @@ export const extractSignalModality = (signal: { label: string }, labelMatchers?:
 export const headerToBiosignalHeader = (headers: EdfHeader) => {
     const biosigHeaders = new GenericBiosignalHeader(
         headers.dataFormat,
-        headers.patientId,
+        // The constructor takes the recording ID before the patient ID; passing the patient ID for
+        // both puts the subject's identification into a field every export and sidecar carries as
+        // the recording's own.
+        headers.localRecordingId,
         headers.patientId,
         headers.dataRecordCount,
         headers.dataRecordDuration,
@@ -77,23 +81,14 @@ export const headerToBiosignalHeader = (headers: EdfHeader) => {
     return biosigHeaders
 }
 /**
- * Check if the given signal is an annotation signal.
- * @param format - Recording format or the reserved field from EDF header.
- * @param channel - Channel info from EDF header.
- * @returns true/false
- */
-export const isAnnotationSignal = (format: string, channel: { label: string }) => {
-    return format.toLowerCase().startsWith('edf+') && channel.label === 'EDF Annotations'
-}
-/**
  * Parse EDF signal prefiltering field per the suggestion in the official EDF spec.
  * @param prefiltering - Prefiltering information as a string.
  * @returns Biosignal filters.
  */
 export const parsePrefiltering = (prefiltering: string): BiosignalFilters => {
-    const filterHp = prefiltering.match(/HP:([0-9\\.]+)Hz/i)
-    const filterLp = prefiltering.match(/LP:([0-9\\.]+)Hz/i)
-    const filterNotch = prefiltering.match(/N:([0-9\\.]+)Hz/i)
+    const filterHp = prefiltering.match(/HP:([0-9.]+)Hz/i)
+    const filterLp = prefiltering.match(/LP:([0-9.]+)Hz/i)
+    const filterNotch = prefiltering.match(/N:([0-9.]+)Hz/i)
     return {
         bandreject: [],
         highpass: filterHp ? parseFloat(filterHp[1]) : 0,
