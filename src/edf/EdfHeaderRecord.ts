@@ -31,8 +31,9 @@ export default class EdfHeaderRecord extends GenericBiosignalHeader {
         interruptions = new Map() as SignalInterruptionMap,
         fileType = 'edf'
     ) {
-        // Calculate record size.
-        const bytesPerSample = 2
+        // A BDF sample is three bytes wide where an EDF sample is two, and the record size this
+        // computes is what the base class reports as `dataUnitSize` — the stride a reader seeks by.
+        const bytesPerSample = fileType.toLowerCase().startsWith('bdf') ? 3 : 2
         let maxSr = 0
         let dataRecordSize = 0
         const signalProps = [] as BiosignalHeaderSignal[]
@@ -53,8 +54,12 @@ export default class EdfHeaderRecord extends GenericBiosignalHeader {
                 sensitivity: 0,
             } as BiosignalHeaderSignal)
         }
+        // The format is named with the `+` only once: a caller may pass either the base type
+        // (`bdf`) or the type as the header already spells it (`bdf+`), and appending to the
+        // latter produced `bdf++`.
+        const baseType = fileType.replace(/\+$/, '')
         super(
-            header.isPlus ? `${fileType}+` : fileType, header.localRecordingId, header.patientId,
+            header.isPlus ? `${baseType}+` : baseType, header.localRecordingId, header.patientId,
             header.dataRecordCount, header.dataRecordDuration, dataRecordSize,
             header.signalCount, signalProps, header.recordingDate,
             header.discontinuous, events, [], interruptions
@@ -133,7 +138,7 @@ export default class EdfHeaderRecord extends GenericBiosignalHeader {
             return null
         }
 
-        if (record < 0 && record>=this._physicalSignals[index].length) {
+        if (record < 0 || record >= this._physicalSignals[index].length) {
             Log.warn(`Record index ${record} is out of range, cannot return physical signal.`, SCOPE)
             return null
         }
@@ -156,12 +161,14 @@ export default class EdfHeaderRecord extends GenericBiosignalHeader {
             Log.warn(`Signal index ${index} is out of range, cannot concatenate signal records.`, SCOPE)
             return null
         }
-        if (recordStart < 0 && recordStart>=this._physicalSignals[index].length) {
-            Log.warn(`Record index ${recordStart} is out of range, cannot concatenate signal records.`, SCOPE)
-            return null
-        }
+        // The sentinels stand for "from the first record" and "all of them", so they are resolved
+        // before the range is checked rather than refused by it.
         if (recordStart === -1) {
             recordStart = 0
+        }
+        if (recordStart < 0 || recordStart >= this._physicalSignals[index].length) {
+            Log.warn(`Record index ${recordStart} is out of range, cannot concatenate signal records.`, SCOPE)
+            return null
         }
         if (howMany === -1) {
             howMany = this._physicalSignals[index].length - recordStart
@@ -169,14 +176,13 @@ export default class EdfHeaderRecord extends GenericBiosignalHeader {
             // we still want to check if what the user put is not out of bound.
             if (recordStart + howMany > this._physicalSignals[index].length) {
                 Log.debug(
-                    "The number of requested records to concatenate is too large. Returning only available records.",
+                    'The number of requested records to concatenate is too large. Returning only available records.',
                 SCOPE)
                 howMany = this._physicalSignals[index].length - recordStart
             }
         }
-        const recordEnd = recordStart + howMany - 1
-        if (recordEnd === recordStart) {
-            Log.debug("No more records to concatenate.", SCOPE)
+        if (howMany < 1) {
+            Log.debug('No records to concatenate.', SCOPE)
             return new Float32Array()
         }
         let totalSize = 0
@@ -203,7 +209,7 @@ export default class EdfHeaderRecord extends GenericBiosignalHeader {
             Log.warn(`Signal index ${index} is out of range, cannot return raw signal.`, SCOPE)
             return null
         }
-        if (record < 0 && record>=this._rawSignals[index].length) {
+        if (record < 0 || record >= this._rawSignals[index].length) {
             Log.warn(`Record index ${record} is out of range, cannot return raw signal.`, SCOPE)
             return null
         }
