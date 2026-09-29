@@ -25,7 +25,7 @@ import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'
 import { networkBreakers, setNetworkStatusHandler, validateCommissionProps } from '@epicurrents/core/util'
 
-const SCOPE = "EdfWorker"
+const SCOPE = 'EdfWorker'
 
 class EdfWorker extends SignalReaderWorker<EdfReader> {
     constructor () {
@@ -35,6 +35,9 @@ class EdfWorker extends SignalReaderWorker<EdfReader> {
                 postMessage(update)
             }
         })
+        // The action map is bound at dispatch by `handleMessage`, so an entry added unbound here
+        // still runs with this worker as its `this`.
+        // eslint-disable-next-line @typescript-eslint/unbound-method
         this.extendActionMap([['setup-worker', this.setupWorker]])
     }
 
@@ -54,9 +57,9 @@ class EdfWorker extends SignalReaderWorker<EdfReader> {
      * Clear this worker's breakers so the next block load is attempted afresh.
      * @param msgData - Data property from the message to the worker.
      */
-    override async resetNetwork (msgData: WorkerMessage['data']) {
+    override resetNetwork (msgData: WorkerMessage['data']) {
         networkBreakers.reset(msgData.origin as string | undefined)
-        return true
+        return Promise.resolve(true)
     }
 
     /**
@@ -125,5 +128,5 @@ onmessage = async (message: WorkerMessage) => {
         return
     }
     Log.debug(`Received message with action ${message.data.action}.`, SCOPE)
-    WORKER.handleMessage(message)
+    await WORKER.handleMessage(message)
 }

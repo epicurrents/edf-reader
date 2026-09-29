@@ -39,7 +39,7 @@ const NOT_MAPPED = -1
  * Options controlling an EDF export.
  */
 export type EdfExportOptions = {
-    /** De-identify the EDF file: blank subject identifiers in the header and strip event/label text. Defaults to true. */
+    /** De-identify the EDF file: blank the header's subject fields and strip event and label text. Default true. */
     deidentify?: boolean
     /** De-identify the metadata sidecar as well. Defaults to false, so the sidecar preserves the original metadata. */
     deidentifySidecar?: boolean
@@ -47,7 +47,8 @@ export type EdfExportOptions = {
      * Dither the samples as they are quantized: noise of under one digital step, from a cryptographic source, before
      * rounding. The same recording exported twice then never gives the same bytes, so an export cannot be found by
      * re-encoding a copy of the original and comparing bytes or hashes. It does not stop correlating the signal with
-     * the original, since the noise stays under one quantization step and leaves the signal's shape unchanged. Defaults to false.
+     * the original, since the noise stays under one quantization step and leaves the signal's shape unchanged.
+     * Defaults to false.
      */
     dither?: boolean
     /**
@@ -127,7 +128,9 @@ function activeSources (active: number | DerivedChannelProperties | undefined): 
     if (active === undefined) {
         return []
     }
-    const entries = typeof active === 'number' ? [active] : active.map(entry => Array.isArray(entry) ? entry[0] : entry)
+    const entries = typeof active === 'number'
+                    ? [active]
+                    : active.map(entry => (Array.isArray(entry) ? entry[0] : entry))
     return entries.filter(index => typeof index === 'number' && index !== NOT_MAPPED)
 }
 
@@ -442,7 +445,10 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
      * @param options - Export options.
      * @returns The EDF bytes and sidecar JSON, or null if encoding failed.
      */
-    async encodeResource (resource: BiosignalResource, options: EdfExportOptions = {}): Promise<EdfExportResult | null> {
+    async encodeResource (
+        resource: BiosignalResource,
+        options: EdfExportOptions = {}
+    ): Promise<EdfExportResult | null> {
         const payload = await this._gatherPayload(resource, options)
         if (!payload) {
             return null
@@ -461,7 +467,10 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
      * @param options - Export options.
      * @returns The EDF bytes and sidecar JSON, or null if caching or encoding failed.
      */
-    async convertResource (resource: BiosignalResource, options: EdfExportOptions = {}): Promise<EdfExportResult | null> {
+    async convertResource (
+        resource: BiosignalResource,
+        options: EdfExportOptions = {}
+    ): Promise<EdfExportResult | null> {
         const cached = await resource.loadAndCacheSignals()
         if (!cached) {
             Log.error(`Cannot convert resource: its signals could not be cached.`, SCOPE)
@@ -479,9 +488,10 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
         this._getWorker = getWorker
     }
 
-    async exportStudyToDataset (_dataset: MediaDataset, _path: string): Promise<void> {
+    exportStudyToDataset (_dataset: MediaDataset, _path: string): Promise<void> {
         // Batch export to a dataset (with optional embedded footer) is a later addition.
         Log.error(`Exporting an EDF study directly to a dataset is not yet supported.`, SCOPE)
+        return Promise.resolve()
     }
 
     /**
@@ -490,7 +500,9 @@ export default class EdfExporter extends GenericStudyExporter implements FileFor
      * @param options - Export options.
      * @returns The EDF bytes, the sidecar JSON, and a suggested base file name, or null if there is nothing to export.
      */
-    async exportActiveResource (options: EdfExportOptions = {}): Promise<(EdfExportResult & { fileName: string }) | null> {
+    async exportActiveResource (
+        options: EdfExportOptions = {}
+    ): Promise<(EdfExportResult & { fileName: string }) | null> {
         const resource = this._getActiveResource()
         if (!resource) {
             Log.error(`No active biosignal resource is available to export.`, SCOPE)

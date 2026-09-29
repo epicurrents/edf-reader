@@ -6,7 +6,7 @@
  */
 
 import { GenericBiosignalHeader, GenericStudyImporter } from '@epicurrents/core'
-import { safeObjectFrom, secondsToTimeString } from '@epicurrents/core/util'
+import { secondsToTimeString } from '@epicurrents/core/util'
 import type {
     ConfigReadSignals,
     ConfigReadUrl,
@@ -31,9 +31,9 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
         const fileTypeAssocs = [
             {
                 accept: {
-                    "application/octet-stream": ['.edf', '.bdf'],
+                    'application/octet-stream': ['.edf', '.bdf'],
                 },
-                description: "European data format EDF/BDF",
+                description: 'European data format EDF/BDF',
             },
         ]
         super(SCOPE, [], fileTypeAssocs)
@@ -41,7 +41,7 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
         this._getWorkerSubstitute = () => new EdfWorkerSubstitute()
     }
 
-    protected async _readSignalInfo (source: ArrayBuffer, config?: ConfigReadSignals) {
+    protected _readSignalInfo (source: ArrayBuffer, config?: ConfigReadSignals) {
         this._decoder.appendInput(source)
         this._decoder.decodeHeader()
         const fullHeader = this._decoder.output
@@ -128,7 +128,7 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
                 return null
             }
             const fullHeader = file.slice(256, (edfHeader.signalCount + 1)*256)
-            await this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
+            this._readSignalInfo(await fullHeader.arrayBuffer(), config?.signalReader)
         } catch (e: unknown) {
             Log.error(`${fileDesig} header parsing error: ${(e as Error).message}.`, SCOPE, e as Error)
             return null
@@ -165,7 +165,7 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
                 return null
             }
             // Load the full header including per-signal info, sized from the signal count.
-            await this._readSignalInfo(
+            this._readSignalInfo(
                 await this._fetchArrayBuffer(url, {
                     authHeader: config?.authHeader,
                     range: [256, (edfHeader.signalCount + 1)*256 - 1],
@@ -180,9 +180,22 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
         return studyFile
     }
 
-    async readHeader (source: ArrayBuffer, config?: ConfigReadEdfHeader): Promise<EdfHeader | null> {
+    /**
+     * Parse the fixed part of an EDF/BDF header record — everything up to the per-signal block.
+     *
+     * The per-signal block is read separately, because its size follows from the signal count this
+     * parse reports, and `_readSignalInfo` is what puts it into the study. A configuration naming
+     * signals therefore has nothing to act on here.
+     * @param source - The first 256 bytes of the file.
+     * @param _config - Accepted for the importer interface; this reader takes nothing from it.
+     * @returns The parsed EDF header, or null if the bytes could not be parsed as one.
+     */
+    readHeader (source: ArrayBuffer, _config?: ConfigReadEdfHeader): Promise<EdfHeader | null> {
         this._decoder.setInput(source)
-        this._decoder.decodeHeader(true)
+        const header = this._decoder.decodeHeader(true)
+        if (!header) {
+            return Promise.resolve(null)
+        }
         const edfRecording = this._decoder.output
         const recType = edfRecording.isEdfPlus && edfRecording.isDiscontinuous
                         ? `EDF/BDF+ (discontinuous) file header parsed:`
@@ -194,34 +207,9 @@ export default class EdfImporter extends GenericStudyImporter implements SignalS
                 `${edfRecording.signalCount} signals,`,
                 `${edfRecording.dataUnitCount} records,`,
                 `${edfRecording.dataUnitDuration} seconds/record,`,
-                `${secondsToTimeString(edfRecording.totalDuration)} duration.`,
+                `${secondsToTimeString(edfRecording.totalDuration) as string} duration.`,
             ], SCOPE
         )
-        // Try to fetch metadata from header.
-        // Saving metadata separately is important in case libraries are added or changed later.
-        const meta = this._study.meta as EdfHeader & { header?: EdfHeader }
-        if (!meta.header) {
-            (this._study.meta as { header: EdfHeader }).header = safeObjectFrom(
-                {
-                    patientId: meta.patientId || edfRecording.patientId || '',
-                    recordId: meta.recordId || edfRecording.recordingId || null,
-                    startDate: meta.startDate || edfRecording.recordingStartTime || null,
-                    nDataRecords: edfRecording.dataUnitCount || null,
-                    recordLen: edfRecording.dataUnitDuration || null,
-                    signalCount: edfRecording.signalCount || 0,
-                }
-            )
-        } else {
-            meta.header.patientId = meta.patientId || edfRecording.patientId || ''
-            meta.header.recordId = meta.recordId || edfRecording.recordingId || null
-            meta.header.startDate = meta.startDate || edfRecording.recordingStartTime || null
-            meta.header.nDataRecords = edfRecording.dataUnitCount || null
-            meta.header.recordLen = edfRecording.dataUnitDuration || null
-            meta.header.signalCount = edfRecording.signalCount || 0
-        }
-        if (config?.signals?.length) {
-            await this._readSignalInfo(source, config as ConfigReadSignals)
-        }
-        return meta.header || null
+        return Promise.resolve(header)
     }
 }

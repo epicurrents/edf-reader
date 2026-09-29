@@ -43,7 +43,7 @@ export default class EdfWriter extends GenericSignalWriter implements SignalData
         super.setSourceArrayBuffer(buffer)
     }
 
-    setSourceDigitalSignals(signals: TypedNumberArray[]): void {
+    setSourceDigitalSignals (signals: TypedNumberArray[]): void {
         if (signals.some(signal => !(signal instanceof Int16Array))) {
             Log.error('All digital signals must be Int16Arrays for EDF format.', SCOPE)
         } else {
@@ -52,7 +52,7 @@ export default class EdfWriter extends GenericSignalWriter implements SignalData
         super.setSourceDigitalSignals(signals)
     }
 
-    async writeRecordingToArrayBuffer() {
+    async writeRecordingToArrayBuffer () {
         try {
             const buffer = await this._encoder.encode()
             if (buffer) {

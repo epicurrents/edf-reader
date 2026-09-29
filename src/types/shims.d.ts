@@ -5,8 +5,6 @@
  * @license    Apache-2.0
  */
 
-/* eslint-disable */
-
 /**
  * Worker bundled and inlined by the build. The bundle is self-contained and carries its own copy of
  * every dependency, so the constructed worker resolves nothing at runtime.

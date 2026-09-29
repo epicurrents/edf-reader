@@ -14,7 +14,7 @@ import type {
     SafeObject,
     SignalCachePart,
     SignalInterruptionMap,
-} from "@epicurrents/core/types"
+} from '@epicurrents/core/types'
 
 /**
  * Types of attachments that can be stored in the EDF footer.
@@ -31,7 +31,8 @@ import type {
  * - status: Patient status findings at the time of the recording (not allowed in de-identified recordings).
  * - video: Video files that are not time-synced to the recording, but are related to it.
  */
-export type AttachmentType = "audio" | "document" | "history" | "image" | "measurement" | "other" | "status" | "video"
+export type AttachmentType = 'audio' | 'document' | 'history' | 'image' | 'measurement' | 'other' |
+                            'status' | 'video'
 export type ConfigReadEdfHeader = ConfigReadHeader & Partial<ConfigReadSignals>
 /**
  * EDF footer contains metadata about the recording, such as annotations, interruptions, channel properties, and videos.
@@ -68,7 +69,7 @@ export type EdfFooter = SafeObject & {
     /** Labels in the recording. */
     labels: AnnotationLabelTemplate[]
     /** Recording modality (in this case "eeg"). */
-    modality: "eeg"
+    modality: 'eeg'
     /** Recording date as an ISO string or null if not known. */
     recordingDate: null | string
     /** Footer version. */
@@ -147,7 +148,7 @@ export type EdfEncodeOptions = {
     embedFooter?: boolean
     /**
      * When embedding a footer, de-identify the embedded sidecar as well. Independent of the file-level `deidentify`
-     * flag, so a de-identified file may still embed original metadata (or vice versa). Defaults to the `deidentify` value.
+     * flag, so a de-identified file may still embed original metadata (or vice versa). Defaults to `deidentify`.
      */
     embedFooterDeidentified?: boolean
     /**
@@ -206,7 +207,7 @@ export type EdfHeader = SafeObject & {
     /** Number of signals in the file. */
     signalCount: number
     /** EDF-specific signal information parsed from the header record. */
-    signalInfo: EdfSignalInfo[],
+    signalInfo: EdfSignalInfo[]
 }
 
 export type EdfHeaderSignal = SafeObject & {
@@ -237,7 +238,7 @@ export type EdfHeaderSignal = SafeObject & {
 /**
  * Types of recordings that can be encoded with the EdfEncoder.
  */
-export type EdfRecordingType = "eeg"
+export type EdfRecordingType = 'eeg'
 
 /**
  * Properties as they are recorded in the EDF header.
