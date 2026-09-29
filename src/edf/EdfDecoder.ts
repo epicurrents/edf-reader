@@ -100,12 +100,12 @@ export default class EdfDecoder implements FileDecoder {
     * Decode EDF file data. Can only be called after the header is decoded or a header object is provided.
     * @param header - EDF header to use instead of stored header.
     * @param buffer - Buffer to use instead of stored buffer data (optional).
-    * @param dataOffset - Byte size of the header or byte index of the record to start from (default is headerRecordSize from header).
+    * @param dataOffset - Byte offset the first record starts at; the header's own byte size by default.
     * @param startRecord - Record number at dataOffset (default 0).
     * @param range - Range of records to decode from buffer (optional, but required if a buffer is provided).
-    * @param priorOffset - Time offset of the prior data (i.e. total interruption time before buffer start, optional, default 0).
-    * @param returnRaw -Return the raw digital signals instead of physical signals (default false).
-    * @returns An object holding the decoded signals with possible annotations and data interruptions, or null if an error occurred.
+    * @param priorOffset - Total interruption time before the buffer starts, in seconds (optional, default 0).
+    * @param returnRaw - Return the raw digital signals instead of the physical ones (default false).
+    * @returns The decoded signals with any annotations and interruptions found, or null if decoding failed.
     */
     decodeData (
         header: EdfHeader | null,
@@ -119,7 +119,7 @@ export default class EdfDecoder implements FileDecoder {
         const dataBuffer = buffer || this._inputBuffer
         const useHeaders = header || this._output?.header
         if (!useHeaders) {
-            Log.error("Cannot decode EDF/BDF data: header has not been decoded yet!", SCOPE)
+            Log.error('Cannot decode EDF/BDF data: header has not been decoded yet!', SCOPE)
             return null
         } else if (header) {
             this._dataFormat = header.dataFormat
@@ -151,7 +151,7 @@ export default class EdfDecoder implements FileDecoder {
             channels: [],
             class: 'event',
             duration: 0,
-            //label: '', // Use value as label.
+            // `label` is left out: the value doubles as it.
             priority: 0,
             start: 0,
             text: '',
@@ -271,6 +271,8 @@ export default class EdfDecoder implements FileDecoder {
             physicalSignals[i] = new Array(nDataRecords) as Array<number>[]
         }
         const interruptions = new Map<number, number>() as SignalInterruptionMap
+        // A view over the whole buffer, taken once; the sample reads below are offset into it.
+        const dataView = new Uint8Array(dataBuffer)
         let startCorrection = 0
         if (dataOffset === -1) {
             dataOffset = useHeaders.headerRecordBytes
@@ -317,9 +319,8 @@ export default class EdfDecoder implements FileDecoder {
                     }
                     isAnnotation = true
                 }
-                const byteArray = new Uint8Array(dataBuffer)
                 const rawSignal = unpackArray(
-                    byteArray,
+                    dataView,
                     sampleType,
                     dataOffset,
                     dataOffset + nBytes
@@ -331,11 +332,10 @@ export default class EdfDecoder implements FileDecoder {
                     const physicalSignal = new Array<number>(rawSignal.length).fill(0)
                     if (!isAnnotation) {
                         for (let index=0; index<nSamples; index++) {
-                            // https://edfrw.readthedocs.io/en/latest/specifications.html#converting-digital-samples-to-physical-dimensions
+                            // The precomputed form of the spec's conversion, which is otherwise the
+                            // digital value's position in the digital range scaled onto the
+                            // physical one; see the EDF specification on converting samples.
                             physicalSignal[index] = sigInfo.unitsPerBit*(rawSignal[index] + sigInfo.digitalOffset)*scale
-                                //(
-                                //    ((rawSignal[index] - sigInfo.digitalMinimum) / digitalSignalRange )*physicalSignalRange
-                                //) + sigInfo.physicalMinimum
                         }
                     }
                     physicalSignals[i][r] = physicalSignal
@@ -365,7 +365,7 @@ export default class EdfDecoder implements FileDecoder {
             interruptions,
             this._dataFormat
         )
-        // If more than one record was requested, we need to concatenate the response signal for each channel from the set of decoded signal records.
+        // The records of each channel are concatenated into one signal per channel.
         return {
             events: annotations,
             interruptions: interruptions,
@@ -381,7 +381,7 @@ export default class EdfDecoder implements FileDecoder {
     */
     decodeHeader (noSignals = false) {
         if (!this._inputBuffer) {
-            Log.error("Cannot decode EDF/BDF header: an input buffer must be specified!", SCOPE)
+            Log.error('Cannot decode EDF/BDF header: an input buffer must be specified!', SCOPE)
             return null
         }
         const header = {
@@ -477,14 +477,14 @@ export default class EdfDecoder implements FileDecoder {
                 throw Error(`Time value is empty.`)
             }
             offset += 8
-            const date = recStartDate.split(".")
+            const date = recStartDate.split('.')
             // 1985 breakpoint.
             if (parseInt(date[2]) >= 85) {
                 date[2] = `19${date[2]}`
             } else {
                 date[2] = `20${date[2]}`
             }
-            const time = recStartTime.split(".")
+            const time = recStartTime.split('.')
             header.recordingDate = new Date(
                 parseInt(date[2]),
                 parseInt(date[1]) - 1,
@@ -612,6 +612,17 @@ export default class EdfDecoder implements FileDecoder {
             return null
         }
         offset += 4
+        // The per-signal block follows the fixed header, 256 bytes for each signal. A buffer that stops inside it
+        // still parses: `unpackString` pads a read past the end with replacement characters, which go on to become
+        // NaN sample counts and physical ranges — a header that looks decoded and describes nothing.
+        const expectedBytes = 256 + header.signalCount*256
+        if (!noSignals && byteArray.length < expectedBytes) {
+            Log.error(
+                `The ${format} header record needs ${expectedBytes} bytes for ${header.signalCount} signals, ` +
+                `but only ${byteArray.length} were given.`,
+            SCOPE)
+            return null
+        }
         // Stop here if signals are not needed.
         if (noSignals) {
             // Generate an "empty" output object from the header information.
@@ -649,34 +660,57 @@ export default class EdfDecoder implements FileDecoder {
         }
         const signalInfoArrays = {
             // ns * 16 ASCII : ns * label (e.g. EEG Fpz-Cz or Body temp).
-            label: getAllSections(16) || '--',
+            label: getAllSections(16),
             // ns * 80 ASCII : ns * transducer type (e.g. AgAgCl electrode).
-            transducerType: getAllSections(80) || '--',
+            transducerType: getAllSections(80),
             // ns * 8 ASCII : ns * physical dimension (e.g. uV or degreeC).
-            physicalUnit: getAllSections(8) || '--',
+            physicalUnit: getAllSections(8),
             // ns * 8 ASCII : ns * physical minimum (e.g. -500 or 34).
-            physicalMinimum: getAllSections(8) || '0',
+            physicalMinimum: getAllSections(8),
             // ns * 8 ASCII : ns * physical maximum (e.g. 500 or 40).
-            physicalMaximum: getAllSections(8) || '0',
+            physicalMaximum: getAllSections(8),
             // ns * 8 ASCII : ns * digital minimum (e.g. -2048).
-            digitalMinimum: getAllSections(8) || '0',
+            digitalMinimum: getAllSections(8),
             // ns * 8 ASCII : ns * digital maximum (e.g. 2047).
-            digitalMaximum: getAllSections(8) || '0',
+            digitalMaximum: getAllSections(8),
             // ns * 80 ASCII : ns * prefiltering (e.g. HP:0.1Hz LP:75Hz).
-            prefiltering: getAllSections(80) || '--',
+            prefiltering: getAllSections(80),
             // ns * 8 ASCII : ns * nr of samples in each data record.
-            sampleCount: getAllSections(8) || '0',
+            sampleCount: getAllSections(8),
             // ns * 32 ASCII : ns * reserved.
-            reserved: getAllSections(32) || '',
+            reserved: getAllSections(32),
+        }
+        for (const [field, values] of Object.entries(signalInfoArrays)) {
+            if (values.length !== header.signalCount) {
+                // `getAllSections` gives back an empty array where a read threw, which is the one way a section
+                // comes back short of the signal count.
+                Log.error(
+                    `Failed to parse the ${field} section of the ${format} header: expected ` +
+                    `${header.signalCount} values, got ${values.length}.`,
+                SCOPE)
+                return null
+            }
         }
         const signalInfo = [] as EdfSignalInfo[]
+        const annotationLabel = `${header.dataFormat.substring(0, 3)} annotations`
         header.signalInfo = signalInfo
         for (let i=0; i<header.signalCount; i++) {
             const digMax = parseInt(signalInfoArrays.digitalMaximum[i])
             const digMin = parseInt(signalInfoArrays.digitalMinimum[i])
             const physMax = parseFloat(signalInfoArrays.physicalMaximum[i])
             const physMin = parseFloat(signalInfoArrays.physicalMinimum[i])
-            const unitsPerBit = (physMax - physMin)/(digMax - digMin)
+            const digitalRange = digMax - digMin
+            if (!digitalRange || !Number.isFinite(digitalRange)) {
+                // Without a digital range there is no digital-to-physical conversion: the division
+                // below yields Infinity and every sample of the signal decodes as NaN.
+                Log.error(
+                    `Signal ${i} of the ${format} header declares a digital range of ` +
+                    `${signalInfoArrays.digitalMinimum[i]} to ${signalInfoArrays.digitalMaximum[i]}, ` +
+                    `which cannot be converted to physical values.`,
+                SCOPE)
+                return null
+            }
+            const unitsPerBit = (physMax - physMin)/digitalRange
             const samplingRate = parseInt(signalInfoArrays.sampleCount[i])/header.dataRecordDuration
             signalInfo.push(safeObjectFrom({
                 digitalMaximum: digMax,
@@ -689,7 +723,7 @@ export default class EdfDecoder implements FileDecoder {
                 prefiltering: signalInfoArrays.prefiltering[i],
                 reserved: signalInfoArrays.reserved[i],
                 sampleCount: parseInt(signalInfoArrays.sampleCount[i]),
-                samplingRate: signalInfoArrays.label[i] !== 'EDF Annotations' ? samplingRate : 0,
+                samplingRate: signalInfoArrays.label[i].toLowerCase() === annotationLabel ? 0 : samplingRate,
                 transducerType: signalInfoArrays.transducerType[i],
                 unitsPerBit: unitsPerBit,
             }) as EdfSignalInfo)
