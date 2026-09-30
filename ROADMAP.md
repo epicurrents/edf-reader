@@ -4,7 +4,7 @@ What the September 2026 audit left open, roughly in the order the work would pay
 
 ## Open defects
 
-**`EdfWriter` has no consumer and no test.** Nothing in the workspace, the interface or the platform imports it; the export path runs through `EdfExporter` and `encodePayload` instead. Two things in it are wrong for a class nobody exercises to be carrying: `setSourceArrayBuffer` reads its buffer as `Int16Array`, so a BDF source would be misread and an odd byte length throws, and the constructor hardcodes `new EdfEncoder('eeg')` rather than taking the recording's modality. Either give it a caller and a test, or drop it from the package entry.
+**`EdfWriter` stays on the package entry, and needs a test and two fixes.** Nothing in the workspace, the interface or the platform imports it — the export path runs through `EdfExporter` and `encodePayload` — but it is the surface a caller holding raw signals rather than a resource would write through, so it is kept rather than dropped. Two things in it are wrong, and a kept export carrying them is worth fixing: `setSourceArrayBuffer` reads its buffer as `Int16Array`, so a BDF source would be misread and an odd byte length throws, and the constructor hardcodes `new EdfEncoder('eeg')` rather than taking the modality of the recording it is writing.
 
 **The contiguous digital source buffer is accepted and ignored.** `EdfEncoder.setEdfSignalBuffer` stores a buffer that `#writeSignalBuffer` then warns about and passes over. It is the path that would let a recording be re-encoded without a digital-to-physical round trip, and it is the only one `EdfWriter.setSourceArrayBuffer` feeds.
 
@@ -23,7 +23,7 @@ The write path was well covered and still carried a corrupt start date through e
 - `EdfWorkerSubstitute` beyond setup and cache release: `get-signals`, `cache-signals` and the two-stage `request-signals` protocol, which is the path every page that is not cross-origin isolated takes.
 - `EdfImporter.importUrl`, and with it the ranged fetch of the header and the signal block.
 - The writer worker, which has no test at all.
-- `EdfWriter`, at nought per cent, for the reason above.
+- `EdfWriter`, at nought per cent. Untested because it has no caller, and kept because it is a public surface — so the test has to be written against the class directly, exercising the BDF sample width and the modality the two fixes above concern.
 
 ## Smaller things
 
