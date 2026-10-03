@@ -227,8 +227,13 @@ export default class EdfWorkerSubstitute extends ServiceWorkerSubstitute {
             case 'decommission': {
                 await this._reader.destroy()
                 this._reader = null as unknown as EdfReader
+                // The reader is released first, the commission answered next and the transport torn
+                // down last. `shutdown` clears the listener list and `onmessage` together, so a
+                // reply sent after it reaches nobody — and the service awaits this commission
+                // before terminating anything, so it would never get past it.
+                const answered = this.returnSuccess(message)
                 super.shutdown()
-                return this.returnSuccess(message)
+                return answered
             }
             default: {
                 return super.postMessage(message)

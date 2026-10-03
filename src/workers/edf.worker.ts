@@ -23,7 +23,7 @@ import type {
 import EdfReader from '#edf/EdfReader'
 import type { EdfHeader } from '#types'
 import { Log } from 'scoped-event-log'
-import { networkBreakers, setNetworkStatusHandler, validateCommissionProps } from '@epicurrents/core/util'
+import { networkBreakers, setNetworkStatusHandler } from '@epicurrents/core/util'
 
 const SCOPE = 'EdfWorker'
 
@@ -67,7 +67,7 @@ class EdfWorker extends SignalReaderWorker<EdfReader> {
      * @param msgData - Data property from the message to the worker.
      */
     async setupWorker (msgData: WorkerMessage['data']) {
-        const data = validateCommissionProps(
+        const data = this._validate(
             msgData as WorkerMessage['data'] & {
                 formatHeader: EdfHeader
                 header: BiosignalHeaderRecord
@@ -88,7 +88,11 @@ class EdfWorker extends SignalReaderWorker<EdfReader> {
             }
         )
         if (!data) {
-            return this._failure(msgData, `Validating commission props failed.`)
+            // The commission is already answered: `_validate` reports the property it refused on
+            // through the same transport as any other reply. Answering again here would post a
+            // second response with the same request number, which the service has no commission
+            // left to match it to.
+            return false
         }
         // Apply the main-thread snapshot of app settings before any work that depends on them runs.
         // `_buildDataBlocks` in particular reads `maxLoadCacheSize` and `dataBlockDuration` from
@@ -119,8 +123,8 @@ class EdfWorker extends SignalReaderWorker<EdfReader> {
 
 const WORKER = new EdfWorker()
 
-// Surface this worker's per-origin breaker transitions to the service on the main thread, which
-// re-emits them for the interface / platform (reconnecting, session-expired).
+// Report every per-origin breaker transition to whoever commissioned this worker, so a consumer
+// tracking reachability learns of one without polling.
 setNetworkStatusHandler((origin, state) => postMessage({ action: 'network-status', origin, state }))
 
 onmessage = async (message: WorkerMessage) => {

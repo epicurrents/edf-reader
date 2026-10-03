@@ -94,4 +94,20 @@ describe('EdfWorkerSubstitute', () => {
         expect(data.recordingLength).toBe(RECORDS)
         expect(data.dataLength).toBe(RECORDS)
     })
+
+    test('a shutdown is answered before the transport carrying the answer is torn down', async () => {
+        // The reply has to leave before `shutdown` clears the listener list and `onmessage`, or it
+        // reaches nobody — and `GenericService.shutdown` awaits this commission before terminating
+        // anything, so the service never gets past it and the study cannot be closed. Asserting on
+        // the reply is what catches the order: with the teardown first, nothing resolves here.
+        const substitute = new EdfWorkerSubstitute()
+        const answered = await reply(substitute, { action: 'shutdown', rn: 1 })
+        expect(answered).toMatchObject({ action: 'shutdown', rn: 1, success: true })
+    })
+
+    test('a decommission is answered the same way', async () => {
+        const substitute = new EdfWorkerSubstitute()
+        const answered = await reply(substitute, { action: 'decommission', rn: 2 })
+        expect(answered).toMatchObject({ action: 'decommission', rn: 2, success: true })
+    })
 })

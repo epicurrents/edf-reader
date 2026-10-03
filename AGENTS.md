@@ -86,7 +86,7 @@ An interruption is discovered from the timekeeping annotation each EDF+ data rec
 
 The package contributes three things on top:
 
-- **`setup-worker`**, registered through `extendActionMap`. The EDF header is **not** parsed here: `EdfImporter` reads the fixed 256-byte header and the per-signal block on the main thread, and both the `BiosignalHeaderRecord` and the format `EdfHeader` arrive as commission properties. The action validates them, applies the main-thread app-settings snapshot onto `SETTINGS.app` (load-bearing — `_buildDataBlocks` reads `maxLoadCacheSize` and `dataBlockDuration` from it), opens the study with the source (`url` or `file`, one required) and replies with `dataLength` and `recordingLength`.
+- **`setup-worker`**, registered through `extendActionMap`. The EDF header is **not** parsed here: `EdfImporter` reads the fixed 256-byte header and the per-signal block on the main thread, and both the `BiosignalHeaderRecord` and the format `EdfHeader` arrive as commission properties. The action validates them through `this._validate` — the base class's method rather than the exported utility, so a refusal goes out on the worker's own transport and is not reported a second time by the handler — applies the main-thread app-settings snapshot onto `SETTINGS.app` (load-bearing — `_buildDataBlocks` reads `maxLoadCacheSize` and `dataBlockDuration` from it), opens the study with the source (`url` or `file`, one required) and replies with `dataLength` and `recordingLength`.
 - **`_signalResponseExtras`**, which carries the events and interruptions discovered while decoding back with each signal response.
 - **`resetNetwork`** and a network-status handler that posts `network-status` messages to the main thread.
 
@@ -106,7 +106,7 @@ The package contributes three things on top:
 
 The format worker is pure message-in/message-out. It has no knowledge of any UI framework or of the application runtime — only `WorkerMessage` / `WorkerResponse`. The format-specific service on the main thread (for EEG recordings, `@epicurrents/eeg-module`'s `EegService`) owns the worker lifecycle.
 
-`EdfWorkerSubstitute` is the no-worker path: it extends `ServiceWorkerSubstitute` and answers the same messages asynchronously, driving its own `EdfReader` on the main thread. It also answers `decommission`, which the worker does not.
+`EdfWorkerSubstitute` is the no-worker path: it extends `ServiceWorkerSubstitute` and answers the same messages asynchronously, driving its own `EdfReader` on the main thread. It also answers `decommission`, which the worker does not. Both it and `shutdown` release the reader, answer the commission and only then call `super.shutdown()`: the base method clears the listener list and `onmessage` together, so a reply sent after it reaches nobody and the service, which awaits this commission before terminating anything, never gets past it.
 
 ---
 

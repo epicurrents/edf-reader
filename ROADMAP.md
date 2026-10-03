@@ -2,6 +2,12 @@
 
 What the September 2026 audit left open, roughly in the order the work would pay off.
 
+## The declared core range has to move at release
+
+The worker's `setup-worker` validates through `BaseWorker._validate`, which the published core 2.0.0 does not carry. `^2.0.0` therefore states a version the package does not work against, and the range has to become `^2.1.0` once core publishes that member. The same is true of `csv-reader`, `dicom-reader`, `natus-reader`, `nic-reader` and `wav-reader`, and the builder's roadmap tracks the set; `^2.0.0` is what the package is verified against in the workspace, and the bump belongs to the release rather than to the pass that made it necessary.
+
+Validating through the base class rather than the exported utility is what keeps the refusal on the worker's own transport: the utility defaults its reply destination to the global `postMessage`, which is the right destination on a worker thread and no destination at all anywhere else.
+
 ## Open defects
 
 **`EdfWriter` stays on the package entry, and needs a test and two fixes.** Nothing in the workspace, the interface or the platform imports it — the export path runs through `EdfExporter` and `encodePayload` — but it is the surface a caller holding raw signals rather than a resource would write through, so it is kept rather than dropped. Two things in it are wrong, and a kept export carrying them is worth fixing: `setSourceArrayBuffer` reads its buffer as `Int16Array`, so a BDF source would be misread and an odd byte length throws, and the constructor hardcodes `new EdfEncoder('eeg')` rather than taking the modality of the recording it is writing.
@@ -20,7 +26,7 @@ What the September 2026 audit left open, roughly in the order the work would pay
 
 The write path was well covered and still carried a corrupt start date through every non-de-identified export, because the only date assertion it had was on the de-identified branch, which writes a fixed placeholder and takes none of that code. The lesson generalises: a de-identifying writer has two paths and a test that exercises one says nothing about the other. The read path is now covered at its intricate parts — the TAL state machine, interruption detection, the three-byte BDF sample, the header fields. What is still untested:
 
-- `EdfWorkerSubstitute` beyond setup and cache release: `get-signals`, `cache-signals` and the two-stage `request-signals` protocol, which is the path every page that is not cross-origin isolated takes.
+- `EdfWorkerSubstitute` beyond setup, cache release and shutdown: `get-signals`, `cache-signals` and the two-stage `request-signals` protocol, which is the path every page that is not cross-origin isolated takes.
 - `EdfImporter.importUrl`, and with it the ranged fetch of the header and the signal block.
 - The writer worker, which has no test at all.
 - `EdfWriter`, at nought per cent. Untested because it has no caller, and kept because it is a public surface — so the test has to be written against the class directly, exercising the BDF sample width and the modality the two fixes above concern.
