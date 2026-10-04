@@ -46,7 +46,7 @@
     "byte-data": "^19.0.1"
   },
   "devDependencies": {
-    "@epicurrents/core": "^2.0.0",
+    "@epicurrents/core": "^2.1.0",
     "@eslint/js": "^9.19.0",
     "@microsoft/tsdoc": "^0.14.1",
     "@stylistic/eslint-plugin": "^3.0.0",
@@ -61,7 +61,7 @@
     "vite": "^7.3.1"
   },
   "peerDependencies": {
-    "@epicurrents/core": "^2.0.0",
+    "@epicurrents/core": "^2.1.0",
     "asymmetric-io-mutex": "^1.0.0",
     "scoped-event-log": "^3.2.0"
   }
