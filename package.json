@@ -1,6 +1,6 @@
 {
   "name": "@epicurrents/edf-reader",
-  "version": "0.2.0-0",
+  "version": "1.0.0",
   "description": "Epicurrents EDF file loader",
   "keywords": [
     "edf",
