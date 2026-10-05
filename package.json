@@ -2,6 +2,17 @@
   "name": "@epicurrents/edf-reader",
   "version": "0.2.0-0",
   "description": "Epicurrents EDF file loader",
+  "keywords": [
+    "edf",
+    "bdf",
+    "biosignal",
+    "epicurrents",
+    "typescript"
+  ],
+  "homepage": "https://github.com/epicurrents/edf-reader#readme",
+  "bugs": {
+    "url": "https://github.com/epicurrents/edf-reader/issues"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
